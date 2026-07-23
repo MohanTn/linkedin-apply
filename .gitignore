@@ -5,3 +5,4 @@ node_modules/
 backend/server
 /tmp/
 debug/
+data_profile1.json
