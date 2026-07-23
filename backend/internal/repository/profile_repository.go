@@ -59,6 +59,24 @@ func (r *ProfileRepo) Upsert(ctx context.Context, p *models.Profile) error {
 }
 
 // scanner is satisfied by both *sql.Row and *sql.Rows.
+// GetPrefs returns the profile's stored search_prefs JSON, or nil when unset.
+func (r *ProfileRepo) GetPrefs(ctx context.Context, id string) ([]byte, error) {
+	var prefs []byte
+	err := r.db.QueryRowContext(ctx, `SELECT search_prefs FROM profiles WHERE id = $1`, id).Scan(&prefs)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	return prefs, err
+}
+
+// SetPrefs persists the profile's search_prefs JSON.
+func (r *ProfileRepo) SetPrefs(ctx context.Context, id string, prefs []byte) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE profiles SET search_prefs = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+		id, prefs)
+	return err
+}
+
 type scanner interface {
 	Scan(dest ...any) error
 }

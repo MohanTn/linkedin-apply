@@ -16,6 +16,14 @@ import (
 type fakeShortlist struct {
 	rows    []models.ShortlistRow
 	updated map[string]string
+	cleared string
+}
+
+func (f *fakeShortlist) DeleteByProfile(_ context.Context, profileID string) (int64, error) {
+	f.cleared = profileID
+	n := int64(len(f.rows))
+	f.rows = nil
+	return n, nil
 }
 
 func (f *fakeShortlist) List(_ context.Context, ff repository.ShortlistFilter) ([]models.ShortlistRow, error) {

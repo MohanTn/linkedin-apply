@@ -66,6 +66,26 @@ type CompanyVerification struct {
 	CreatedAt           time.Time       `json:"createdAt"`
 }
 
+// CompanySnapshot is one employee-count observation for a company; growth is
+// computed from the delta between snapshots taken across discovery runs.
+type CompanySnapshot struct {
+	ID            string    `json:"id"`
+	Company       string    `json:"company"`
+	EmployeeCount int       `json:"employeeCount"`
+	Source        string    `json:"source"` // linkedin_bucket | kununu
+	CapturedAt    time.Time `json:"capturedAt"`
+}
+
+// Resume is a profile's uploaded resume plus its extracted plain text.
+type Resume struct {
+	ID         string    `json:"id"`
+	ProfileID  string    `json:"profileId"`
+	Filename   string    `json:"filename"`
+	Content    []byte    `json:"-"`
+	Text       string    `json:"-"`
+	UploadedAt time.Time `json:"uploadedAt"`
+}
+
 // Shortlist entry statuses (user-managed).
 const (
 	StatusNew       = "new"
@@ -76,16 +96,20 @@ const (
 
 // ShortlistEntry is a discovered job + its verification, with a manual user status.
 type ShortlistEntry struct {
-	ID              string    `json:"id"`
-	ProfileID       string    `json:"profileId"`
-	JobID           string    `json:"jobId"`
-	VerificationID  string    `json:"verificationId,omitempty"`
-	DiscoveryRunID  string    `json:"discoveryRunId,omitempty"`
-	Score           int       `json:"score"`
-	IsGhost         bool      `json:"isGhost"`
-	ApplyURL        string    `json:"applyUrl"`
-	Status          string    `json:"status"`
-	DiscoveredAt    time.Time `json:"discoveredAt"`
+	ID             string    `json:"id"`
+	ProfileID      string    `json:"profileId"`
+	JobID          string    `json:"jobId"`
+	VerificationID string    `json:"verificationId,omitempty"`
+	DiscoveryRunID string    `json:"discoveryRunId,omitempty"`
+	Score          int       `json:"score"`
+	IsGhost        bool      `json:"isGhost"`
+	ApplyURL       string    `json:"applyUrl"`
+	Status         string    `json:"status"`
+	DiscoveredAt   time.Time `json:"discoveredAt"`
+	// ATS match of the profile's resume against the job description. Nil until a
+	// resume is uploaded and the matching phase runs.
+	AtsScore   *int            `json:"atsScore,omitempty"`
+	AtsDetails json.RawMessage `json:"atsDetails,omitempty"`
 }
 
 // DiscoveryRun tracks a discovery run's start time.
@@ -99,11 +123,13 @@ type DiscoveryRun struct {
 // ShortlistRow is a ShortlistEntry joined with its job fields and run info, for the cockpit.
 type ShortlistRow struct {
 	ShortlistEntry
-	Title       string    `json:"title"`
-	Company     string    `json:"company"`
-	Location    string    `json:"location"`
-	PostedAt    time.Time `json:"postedAt"`
-	RunStartedAt time.Time `json:"runStartedAt,omitempty"`
+	Title        string          `json:"title"`
+	Company      string          `json:"company"`
+	Location     string          `json:"location"`
+	PostedAt     time.Time       `json:"postedAt"`
+	RunStartedAt time.Time       `json:"runStartedAt,omitempty"`
+	Platform     string          `json:"platform,omitempty"`
+	Signals      json.RawMessage `json:"signals,omitempty"` // company_verifications.details
 }
 
 // Session statuses.

@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"strings"
 
@@ -53,6 +54,34 @@ func (r *ShortlistRepo) Upsert(ctx context.Context, e *models.ShortlistEntry) (*
 	return &out, nil
 }
 
+// Get returns a single shortlist entry by id.
+func (r *ShortlistRepo) Get(ctx context.Context, id string) (*models.ShortlistEntry, error) {
+	row := r.db.QueryRowContext(ctx,
+		`SELECT id, profile_id, job_id, verification_id, discovery_run_id, score, is_ghost, apply_url, status, discovered_at
+		 FROM shortlist WHERE id = $1`, id)
+	var out models.ShortlistEntry
+	var verID, runID sql.NullString
+	err := row.Scan(&out.ID, &out.ProfileID, &out.JobID, &verID, &runID, &out.Score,
+		&out.IsGhost, &out.ApplyURL, &out.Status, &out.DiscoveredAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	out.VerificationID = verID.String
+	out.DiscoveryRunID = runID.String
+	return &out, nil
+}
+
+// UpdateAts stores the ATS match score + details for one shortlist entry.
+func (r *ShortlistRepo) UpdateAts(ctx context.Context, id string, score int, details json.RawMessage) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE shortlist SET ats_score = $2, ats_details = $3 WHERE id = $1`,
+		id, score, nullJSON(details))
+	return err
+}
+
 // List returns cockpit rows (shortlist joined with jobs), newest/highest first.
 func (r *ShortlistRepo) List(ctx context.Context, f ShortlistFilter) ([]models.ShortlistRow, error) {
 	var where []string
@@ -80,12 +109,14 @@ func (r *ShortlistRepo) List(ctx context.Context, f ShortlistFilter) ([]models.S
 	offClause := "$" + itoa(len(args))
 
 	q := `SELECT s.id, s.profile_id, s.job_id, s.verification_id, s.discovery_run_id, s.score, s.is_ghost, s.apply_url, s.status, s.discovered_at,
-	              j.title, j.company, j.location, j.posted_at,
-	              COALESCE(r.started_at, s.discovered_at) as run_started_at
+	              j.title, j.company, j.location, j.posted_at, j.platform,
+	              COALESCE(r.started_at, s.discovered_at) as run_started_at,
+	              v.details, s.ats_score, s.ats_details
 	       FROM shortlist s JOIN jobs j ON j.id = s.job_id
 	       LEFT JOIN discovery_runs r ON r.id = s.discovery_run_id
+	       LEFT JOIN company_verifications v ON v.id = s.verification_id
 	       WHERE ` + strings.Join(where, " AND ") + `
-	       ORDER BY s.score DESC, j.posted_at DESC
+	       ORDER BY s.score DESC, j.posted_at DESC NULLS LAST
 	       LIMIT ` + limClause + ` OFFSET ` + offClause
 
 	rows, err := r.db.QueryContext(ctx, q, args...)
@@ -98,13 +129,24 @@ func (r *ShortlistRepo) List(ctx context.Context, f ShortlistFilter) ([]models.S
 	for rows.Next() {
 		var row models.ShortlistRow
 		var verID, runID, location sql.NullString
+		var postedAt sql.NullTime
+		var details, atsDetails []byte
+		var atsScore sql.NullInt64
 		if err := rows.Scan(&row.ID, &row.ProfileID, &row.JobID, &verID, &runID, &row.Score, &row.IsGhost,
-			&row.ApplyURL, &row.Status, &row.DiscoveredAt, &row.Title, &row.Company, &location, &row.PostedAt, &row.RunStartedAt); err != nil {
+			&row.ApplyURL, &row.Status, &row.DiscoveredAt, &row.Title, &row.Company, &location, &postedAt,
+			&row.Platform, &row.RunStartedAt, &details, &atsScore, &atsDetails); err != nil {
 			return nil, err
 		}
+		row.PostedAt = postedAt.Time
 		row.VerificationID = verID.String
 		row.DiscoveryRunID = runID.String
 		row.Location = location.String
+		row.Signals = details
+		if atsScore.Valid {
+			n := int(atsScore.Int64)
+			row.AtsScore = &n
+			row.AtsDetails = atsDetails
+		}
 		out = append(out, row)
 	}
 	return out, rows.Err()
@@ -129,6 +171,17 @@ func (r *ShortlistRepo) UpdateStatus(ctx context.Context, id, status string) (*m
 	out.VerificationID = verID.String
 	out.DiscoveryRunID = runID.String
 	return &out, nil
+}
+
+// DeleteByProfile removes all shortlist entries for a profile ("start over").
+// Jobs/verifications are kept (shared, cached); only this profile's cockpit is
+// cleared. Returns the number of rows removed.
+func (r *ShortlistRepo) DeleteByProfile(ctx context.Context, profileID string) (int64, error) {
+	res, err := r.db.ExecContext(ctx, `DELETE FROM shortlist WHERE profile_id = $1`, profileID)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // Stats returns per-status counts for a profile, including a ghost tally.

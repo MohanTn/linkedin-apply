@@ -5,14 +5,25 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api';
 import type { ShortlistStatus } from '@/types/api';
 import { ProfileSelector } from '@/components/ProfileSelector';
+import { SearchPrefsEditor } from '@/components/SearchPrefsEditor';
 import { DiscoveryProgressBar } from '@/components/DiscoveryProgressBar';
 import { ShortlistTable } from '@/components/ShortlistTable';
+
+const ALL_PLATFORMS = [
+  'linkedin',
+  'glassdoor',
+  'xing',
+  'stepstone',
+  'indeed',
+  'arbeitsagentur',
+];
 
 export default function Dashboard() {
   const qc = useQueryClient();
   const [profile, setProfile] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
   const [includeGhost, setIncludeGhost] = useState(false);
+  const [platforms, setPlatforms] = useState<string[]>(ALL_PLATFORMS);
 
   const profilesQuery = useQuery({
     queryKey: ['profiles'],
@@ -35,15 +46,38 @@ export default function Dashboard() {
     enabled: !!profile,
   });
 
+  const resumeQuery = useQuery({
+    queryKey: ['resume', profile],
+    queryFn: () => apiClient.getResume(profile as string),
+    enabled: !!profile,
+  });
+
+  const uploadResume = useMutation({
+    mutationFn: (file: File) => apiClient.uploadResume(profile as string, file),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['resume', profile] }),
+  });
+
   const gather = useMutation({
-    mutationFn: () =>
-      apiClient.startDiscovery(profile as string, ['linkedin', 'glassdoor'], 24),
+    mutationFn: () => apiClient.startDiscovery(profile as string, platforms, 24),
     onSuccess: (res) => setRunId(res.runId),
   });
+
+  const togglePlatform = (p: string) =>
+    setPlatforms((cur) => (cur.includes(p) ? cur.filter((x) => x !== p) : [...cur, p]));
 
   const setStatus = useMutation({
     mutationFn: ({ id, status }: { id: string; status: ShortlistStatus }) =>
       apiClient.updateShortlistStatus(id, status),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['shortlist'] }),
+  });
+
+  const clearShortlist = useMutation({
+    mutationFn: () => apiClient.clearShortlist(profile as string),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['shortlist'] }),
+  });
+
+  const runAts = useMutation({
+    mutationFn: (ids: string[]) => apiClient.runAts(profile as string, ids),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['shortlist'] }),
   });
 
@@ -57,10 +91,53 @@ export default function Dashboard() {
 
       <div className="card">
         <ProfileSelector profiles={profilesQuery.data?.profiles} onSelect={setProfile} />
+        <div className="row" style={{ marginTop: '0.75rem' }}>
+          {ALL_PLATFORMS.map((p) => (
+            <label key={p} className="row" style={{ gap: '0.3rem' }}>
+              <input
+                type="checkbox"
+                checked={platforms.includes(p)}
+                onChange={() => togglePlatform(p)}
+              />
+              {p}
+            </label>
+          ))}
+        </div>
+        <div className="row" style={{ marginTop: '0.75rem', gap: '0.5rem' }}>
+          <label className="row" style={{ gap: '0.4rem' }}>
+            📄 Resume:
+            <input
+              type="file"
+              accept=".pdf,.txt,.md"
+              disabled={!profile || uploadResume.isPending}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) uploadResume.mutate(f);
+              }}
+            />
+          </label>
+          {uploadResume.isPending && <span className="muted">uploading…</span>}
+          {uploadResume.isError && (
+            <span className="err">{(uploadResume.error as Error).message}</span>
+          )}
+          {resumeQuery.data && !uploadResume.isPending && (
+            <span className="muted">✅ {resumeQuery.data.filename}</span>
+          )}
+          {profile && !resumeQuery.data && !uploadResume.isPending && (
+            <span className="muted">none — upload to enable ATS match scoring</span>
+          )}
+        </div>
         <div className="row" style={{ marginTop: '1rem' }}>
           <button
             onClick={() => gather.mutate()}
-            disabled={!profile || gather.isPending || phase === 'scraping' || phase === 'verifying'}
+            disabled={
+              !profile ||
+              platforms.length === 0 ||
+              gather.isPending ||
+              phase === 'scraping' ||
+              phase === 'verifying' ||
+              phase === 'matching'
+            }
           >
             Gather open positions (last 24h)
           </button>
@@ -75,13 +152,44 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {runId && <DiscoveryProgressBar status={runStatusQuery.data} />}
+      {profile && (
+        <div className="card">
+          <SearchPrefsEditor profileId={profile} />
+        </div>
+      )}
+
+      {(runId || gather.isPending) && (
+        <DiscoveryProgressBar status={runStatusQuery.data} starting={gather.isPending} />
+      )}
 
       <div className="card">
+        <div className="row" style={{ justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+          <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Shortlist</h2>
+          {profile && shortlistQuery.data?.items?.length ? (
+            <button
+              className="btn-danger"
+              disabled={clearShortlist.isPending}
+              onClick={() => {
+                if (
+                  window.confirm(
+                    'Clear the entire shortlist for this profile and start over? This cannot be undone.',
+                  )
+                ) {
+                  clearShortlist.mutate();
+                }
+              }}
+            >
+              {clearShortlist.isPending ? 'Clearing…' : '🗑 Clear all & start over'}
+            </button>
+          ) : null}
+        </div>
         <ShortlistTable
           items={shortlistQuery.data?.items}
           onStatus={(id, status) => setStatus.mutate({ id, status })}
+          onRunAts={(ids) => runAts.mutate(ids)}
+          atsRunning={runAts.isPending}
         />
+        {runAts.isError && <p className="err">{(runAts.error as Error).message}</p>}
       </div>
     </main>
   );

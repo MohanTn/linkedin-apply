@@ -51,4 +51,8 @@ type Browser interface {
 	CheckSession(ctx context.Context, platform string, cookies json.RawMessage) (bool, error)
 	// ScrapeRecent returns listings matching q using the authenticated cookies.
 	ScrapeRecent(ctx context.Context, platform string, cookies json.RawMessage, q ScrapeQuery) ([]ScrapedJob, error)
+	// FetchJD navigates to a job URL (optionally with a session) and returns the
+	// job-description text for ATS matching. platform selects the description
+	// container so page chrome is excluded.
+	FetchJD(ctx context.Context, platform string, cookies json.RawMessage, url string) (string, error)
 }
