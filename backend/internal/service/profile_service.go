@@ -88,10 +88,18 @@ func (s *ProfileService) GetCredentials(profileID, platform string) (email, pass
 	return email, password, nil
 }
 
-// GetSearchPrefs returns cached preferences, loading them if needed.
+// GetSearchPrefs returns preferences, preferring (in order) the in-memory cache,
+// the user-edited prefs stored in the DB, then the data_profileN.json seed.
 func (s *ProfileService) GetSearchPrefs(ctx context.Context, profileID string) (models.SearchPrefs, error) {
 	if p, ok := s.prefs[profileID]; ok {
 		return p, nil
+	}
+	if raw, err := s.store.GetPrefs(ctx, profileID); err == nil && len(raw) > 0 {
+		var prefs models.SearchPrefs
+		if json.Unmarshal(raw, &prefs) == nil {
+			s.prefs[profileID] = prefs
+			return prefs, nil
+		}
 	}
 	prof, err := s.store.GetByID(ctx, profileID)
 	if err != nil {
@@ -100,4 +108,18 @@ func (s *ProfileService) GetSearchPrefs(ctx context.Context, profileID string) (
 	_, prefs := s.loadPrefs(prof.ProfileDataPath)
 	s.prefs[profileID] = prefs
 	return prefs, nil
+}
+
+// SavePrefs persists user-edited search preferences and refreshes the cache, so
+// the next discovery run uses them immediately.
+func (s *ProfileService) SavePrefs(ctx context.Context, profileID string, prefs models.SearchPrefs) error {
+	raw, err := json.Marshal(prefs)
+	if err != nil {
+		return err
+	}
+	if err := s.store.SetPrefs(ctx, profileID, raw); err != nil {
+		return err
+	}
+	s.prefs[profileID] = prefs
+	return nil
 }

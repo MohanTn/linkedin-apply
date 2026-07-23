@@ -1,0 +1,18 @@
+{
+  "branch": "pipeline-worker/tmp-975ce6ad",
+  "targetBranch": "main",
+  "worktreePath": "/tmp/pipeline-worker-OyP1En/worktree",
+  "ciFixAttempt": 0,
+  "conflictAttempt": 0,
+  "phase": "diff",
+  "startedAt": "2026-07-23T18:46:55.903Z",
+  "updatedAt": "2026-07-23T18:46:55.903Z",
+  "history": [
+    {
+      "at": "2026-07-23T18:46:55.903Z",
+      "phase": "diff",
+      "level": "info",
+      "message": "Created worktree at /tmp/pipeline-worker-OyP1En/worktree (temp branch pipeline-worker/tmp-975ce6ad)"
+    }
+  ]
+}

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
@@ -20,6 +21,8 @@ const (
 // DiscoveryProgress is emitted as a run advances.
 type DiscoveryProgress struct {
 	Phase       string `json:"phase"`
+	Platform    string `json:"platform,omitempty"` // platform currently being searched
+	Message     string `json:"message,omitempty"`  // human-readable live step
 	Found       int    `json:"found"`
 	Verified    int    `json:"verified"`
 	Shortlisted int    `json:"shortlisted"`
@@ -27,7 +30,27 @@ type DiscoveryProgress struct {
 	Error       string `json:"error,omitempty"`
 }
 
-// DiscoveryService orchestrates scrape -> verify -> shortlist. It never applies.
+// platformHost maps a platform id to the site name shown in progress messages.
+func platformHost(platform string) string {
+	switch platform {
+	case "linkedin":
+		return "linkedin.com"
+	case "glassdoor":
+		return "glassdoor.com"
+	case "xing":
+		return "xing.com"
+	case "stepstone":
+		return "stepstone.de"
+	case "indeed":
+		return "de.indeed.com"
+	case "arbeitsagentur":
+		return "arbeitsagentur.de"
+	}
+	return platform
+}
+
+// DiscoveryService orchestrates scrape -> verify -> shortlist. It never applies,
+// and no longer runs ATS matching — that is triggered on demand per selection.
 type DiscoveryService struct {
 	profiles     *ProfileService
 	scraper      *JobScraperService
@@ -67,9 +90,13 @@ func (s *DiscoveryService) DiscoverWithRunID(ctx context.Context, profileID stri
 	emit(prog)
 	var jobs []models.Job
 	for _, platform := range platforms {
+		prog.Platform = platform
+		prog.Message = "Searching " + platformHost(platform) + "…"
+		emit(prog)
 		got, serr := s.scraper.ScrapeRecent(ctx, profileID, platform, prefs, sinceHours)
 		jobs = append(jobs, got...)
 		prog.Found = len(jobs)
+		prog.Message = fmt.Sprintf("%s: found %d jobs matching", platformHost(platform), len(got))
 		emit(prog)
 		if serr != nil {
 			// Login failures are fatal for that platform; keep going to others
@@ -82,9 +109,13 @@ func (s *DiscoveryService) DiscoverWithRunID(ctx context.Context, profileID stri
 	}
 	jobs = dedupeJobs(jobs)
 	prog.Found = len(jobs)
+	prog.Platform = ""
+	prog.Message = fmt.Sprintf("%d unique jobs after de-duplication", len(jobs))
+	emit(prog)
 
 	// ---- verify + shortlist ----
 	prog.Phase = PhaseVerifying
+	prog.Message = "Doing company research…"
 	emit(prog)
 	verCache := map[string]*models.CompanyVerification{}
 	shortlisted, ghost := 0, 0
@@ -92,6 +123,8 @@ func (s *DiscoveryService) DiscoverWithRunID(ctx context.Context, profileID stri
 		key := strings.ToLower(strings.TrimSpace(job.Company))
 		cv := verCache[key]
 		if cv == nil {
+			prog.Message = fmt.Sprintf("Researching %s…", job.Company)
+			emit(prog)
 			cv, err = s.verification.Verify(ctx, job.Company)
 			if err != nil {
 				return shortlisted, err
@@ -101,14 +134,14 @@ func (s *DiscoveryService) DiscoverWithRunID(ctx context.Context, profileID stri
 		}
 
 		entry := &models.ShortlistEntry{
-			ID:              uuid.NewString(),
-			ProfileID:       profileID,
-			JobID:           job.ID,
-			VerificationID:  cv.ID,
-			DiscoveryRunID:  runID,
-			Score:           cv.Score,
-			IsGhost:         cv.IsGhostJob,
-			ApplyURL:        job.ApplyURL,
+			ID:             uuid.NewString(),
+			ProfileID:      profileID,
+			JobID:          job.ID,
+			VerificationID: cv.ID,
+			DiscoveryRunID: runID,
+			Score:          cv.Score,
+			IsGhost:        cv.IsGhostJob,
+			ApplyURL:       job.ApplyURL,
 		}
 		if _, err := s.shortlist.Upsert(ctx, entry); err != nil {
 			return shortlisted, err
@@ -119,10 +152,16 @@ func (s *DiscoveryService) DiscoverWithRunID(ctx context.Context, profileID stri
 		}
 		prog.Shortlisted = shortlisted
 		prog.Ghost = ghost
+		prog.Message = fmt.Sprintf("Shortlisting %d/%d jobs", shortlisted, len(jobs))
 		emit(prog)
 	}
 
+	// ATS matching is no longer run automatically here — it is expensive (each JD
+	// fetch launches a browser). The user selects jobs in the cockpit and triggers
+	// AtsRunService on just that selection instead.
+
 	prog.Phase = PhaseDone
+	prog.Message = fmt.Sprintf("Done — %d shortlisted, %d possible ghosts", shortlisted, ghost)
 	emit(prog)
 	return shortlisted, nil
 }

@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -83,6 +84,19 @@ type platformSpec struct {
 	challengeHint string // substring in URL indicating 2FA/checkpoint
 	searchURL     func(q ScrapeQuery) string
 	extractJS     string // JS returning JSON array of raw jobs
+	public        bool   // no login required; ScrapeRecent works without cookies
+}
+
+// Public reports whether the platform can be scraped without a login session.
+func Public(platform string) bool {
+	return specs[platform].public
+}
+
+// NeedsLogin reports whether the platform is a known login platform (has a spec
+// and is not public), i.e. JD fetching should attach a session.
+func NeedsLogin(platform string) bool {
+	s, ok := specs[platform]
+	return ok && !s.public
 }
 
 var specs = map[string]platformSpec{
@@ -109,6 +123,29 @@ var specs = map[string]platformSpec{
 		challengeHint: "verify",
 		searchURL:     glassdoorSearchURL,
 		extractJS:     glassdoorExtractJS,
+	},
+	"xing": {
+		loginURL:      "https://login.xing.com/",
+		userSel:       "input[name=username]",
+		passSel:       "input[name=password]",
+		submitSel:     "button[type=submit]",
+		authCookie:    "login",
+		loggedInProbe: `(function(){try{return !document.querySelector('input[name=password]')&&!location.host.startsWith('login.');}catch(e){return false;}})()`,
+		errorProbe:    `(function(){try{return !!document.querySelector('[role="alert"], [data-qa="error"]');}catch(e){return false;}})()`,
+		challengeHint: "two-factor",
+		searchURL:     xingSearchURL,
+		extractJS:     xingExtractJS,
+	},
+	// Openly searchable German portals — no account needed.
+	"stepstone": {
+		public:    true,
+		searchURL: stepstoneSearchURL,
+		extractJS: stepstoneExtractJS,
+	},
+	"indeed": {
+		public:    true,
+		searchURL: indeedDeSearchURL,
+		extractJS: indeedExtractJS,
 	},
 }
 
@@ -360,6 +397,68 @@ func (b *Chromedp) CheckSession(ctx context.Context, platform string, cookies js
 	return loggedIn, err
 }
 
+// ---- JD fetch -------------------------------------------------------------
+
+// FetchJD navigates to a job URL (optionally authenticated) and returns just the
+// job-description text, collapsed to single spaces. It targets the platform's
+// description container so nav/header/footer chrome ("apply", "skip", "premium",
+// …) never pollutes the ATS keywords; if no container matches it falls back to
+// the body with nav/header/footer/aside stripped. Best-effort: an error yields
+// empty text so ATS matching can skip the job rather than fail the run.
+func (b *Chromedp) FetchJD(ctx context.Context, platform string, cookies json.RawMessage, url string) (string, error) {
+	tctx, cancel := b.newContext(ctx)
+	defer cancel()
+	tctx, tcancel := context.WithTimeout(tctx, b.timeout)
+	defer tcancel()
+
+	actions := []chromedp.Action{network.Enable()}
+	if len(cookies) > 0 {
+		actions = append(actions, setCookiesAction(cookies))
+	}
+	var text string
+	actions = append(actions,
+		chromedp.Navigate(url),
+		chromedp.Sleep(3*time.Second),
+		chromedp.Evaluate(jdExtractJS(platform), &text),
+	)
+	if err := chromedp.Run(tctx, actions...); err != nil {
+		return "", err
+	}
+	return strings.Join(strings.Fields(text), " "), nil
+}
+
+// jdDescSelectors maps a platform to the CSS selectors that wrap the actual job
+// description (tried in order, first match wins).
+var jdDescSelectors = map[string][]string{
+	"linkedin":       {".jobs-description__content", ".jobs-box__html-content", "#job-details", ".show-more-less-html__markup", ".description__text"},
+	"glassdoor":      {".JobDetails_jobDescription__uW_fK", "#JobDescriptionContainer", "[data-test='jobDescriptionContent']"},
+	"xing":           {"[data-testid='expandable-content']", "[data-testid='job-description']", ".job-description"},
+	"stepstone":      {"[data-at='job-ad-content']", ".js-app-ld-ContentBlock", ".listing-content"},
+	"indeed":         {"#jobDescriptionText", ".jobsearch-JobComponent-description"},
+	"arbeitsagentur": {"#jobdetails-beschreibung", "jb-jobdetail-beschreibung", "[id*='beschreibung']"},
+}
+
+// jdExtractJS builds JS that returns the description container's innerText, or —
+// when none of the platform selectors match — the body innerText with structural
+// chrome (nav/header/footer/aside/script/style/button) removed.
+func jdExtractJS(platform string) string {
+	sels, _ := json.Marshal(jdDescSelectors[platform])
+	return `(function(){
+  try {
+    var sels = ` + string(sels) + ` || [];
+    for (var i = 0; i < sels.length; i++) {
+      var el = document.querySelector(sels[i]);
+      if (el && el.innerText && el.innerText.trim().length > 100) return el.innerText;
+    }
+    var main = document.querySelector('main, article, [role=main]') || document.body;
+    if (!main) return '';
+    var clone = main.cloneNode(true);
+    clone.querySelectorAll('nav, header, footer, aside, script, style, button, form, [role=navigation]').forEach(function(n){ n.remove(); });
+    return clone.innerText || '';
+  } catch (e) { return (document.body && document.body.innerText) || ''; }
+})()`
+}
+
 // ---- Scrape ---------------------------------------------------------------
 
 func (b *Chromedp) ScrapeRecent(ctx context.Context, platform string, cookies json.RawMessage, q ScrapeQuery) ([]ScrapedJob, error) {
@@ -383,14 +482,17 @@ func (b *Chromedp) ScrapeRecent(ctx context.Context, platform string, cookies js
 		sub := q
 		sub.Keywords = []string{kw}
 		var raw string
-		err := chromedp.Run(tctx,
-			network.Enable(),
-			setCookiesAction(cookies),
+		actions := []chromedp.Action{network.Enable()}
+		if len(cookies) > 0 { // public platforms scrape without a session
+			actions = append(actions, setCookiesAction(cookies))
+		}
+		actions = append(actions,
 			chromedp.Navigate(spec.searchURL(sub)),
 			chromedp.Sleep(4*time.Second),
 			scrollToLoad(),
 			chromedp.Evaluate(spec.extractJS, &raw),
 		)
+		err := chromedp.Run(tctx, actions...)
 		if err != nil {
 			return all, fmt.Errorf("scrape %q: %w", kw, err)
 		}
@@ -432,10 +534,16 @@ type rawJob struct {
 }
 
 func (rj rawJob) toScraped() ScrapedJob {
-	posted := time.Now()
-	if rj.PostedISO != "" {
-		if t, err := time.Parse(time.RFC3339, rj.PostedISO); err == nil {
+	// No date from the portal = unknown (zero), never "now" — the Posted column
+	// must reflect when the portal published the job, not when we scraped it.
+	var posted time.Time
+	for _, layout := range []string{time.RFC3339, "2006-01-02"} {
+		if rj.PostedISO == "" {
+			break
+		}
+		if t, err := time.Parse(layout, rj.PostedISO); err == nil {
 			posted = t
+			break
 		}
 	}
 	raw, _ := json.Marshal(rj)
@@ -480,6 +588,60 @@ func glassdoorSearchURL(q ScrapeQuery) string {
 	return "https://www.glassdoor.com/Job/jobs.htm?" + v.Encode()
 }
 
+func xingSearchURL(q ScrapeQuery) string {
+	v := url.Values{}
+	if len(q.Keywords) > 0 {
+		v.Set("keywords", q.Keywords[0])
+	}
+	if len(q.Locations) > 0 {
+		v.Set("location", q.Locations[0])
+	}
+	v.Set("sort", "date")
+	if q.RemoteOnly {
+		v.Set("remoteOption", "FULL_REMOTE.ffce20")
+	}
+	return "https://www.xing.com/jobs/search?" + v.Encode()
+}
+
+func stepstoneSearchURL(q ScrapeQuery) string {
+	kw := "jobs"
+	if len(q.Keywords) > 0 && q.Keywords[0] != "" {
+		kw = strings.ReplaceAll(strings.TrimSpace(q.Keywords[0]), " ", "-")
+	}
+	u := "https://www.stepstone.de/jobs/" + url.PathEscape(kw)
+	if len(q.Locations) > 0 && q.Locations[0] != "" {
+		loc := strings.ReplaceAll(strings.TrimSpace(q.Locations[0]), " ", "-")
+		u += "/in-" + url.PathEscape(loc)
+	}
+	days := q.SinceHours / 24
+	if days < 1 {
+		days = 1
+	}
+	v := url.Values{}
+	v.Set("ag", "age_"+strconv.Itoa(days))
+	if q.RemoteOnly {
+		v.Set("wfh", "1")
+	}
+	return u + "?" + v.Encode()
+}
+
+func indeedDeSearchURL(q ScrapeQuery) string {
+	v := url.Values{}
+	if len(q.Keywords) > 0 {
+		v.Set("q", q.Keywords[0])
+	}
+	if len(q.Locations) > 0 {
+		v.Set("l", q.Locations[0])
+	}
+	days := q.SinceHours / 24
+	if days < 1 {
+		days = 1
+	}
+	v.Set("fromage", strconv.Itoa(days))
+	v.Set("sort", "date")
+	return "https://de.indeed.com/jobs?" + v.Encode()
+}
+
 // linkedinExtractJS walks visible job cards and returns a JSON array. Returns a
 // JSON string (chromedp Evaluate marshals the JS return value).
 const linkedinExtractJS = `JSON.stringify(Array.from(document.querySelectorAll('div.job-card-container, li.jobs-search-results__list-item, div[data-job-id]')).map(function(el){
@@ -503,4 +665,47 @@ const glassdoorExtractJS = `JSON.stringify(Array.from(document.querySelectorAll(
   var loc = (el.querySelector('[data-test="emp-location"]') || {}).innerText || '';
   var salary = (el.querySelector('[data-test="detailSalary"]') || {}).innerText || '';
   return { externalJobId: 'gd_' + id, title: (title||'').trim(), company: company.trim(), applyUrl: href.split('?')[0], location: loc.trim(), salary: salary.trim(), postedAt: '' };
+}).filter(function(j){ return j.title && j.applyUrl; }))`
+
+const xingExtractJS = `JSON.stringify(Array.from(document.querySelectorAll('article[data-testid="job-search-result"], li[data-testid="search-result"] article, a[href*="/jobs/"][data-testid]')).map(function(el){
+  var a = el.tagName === 'A' ? el : el.querySelector('a[href*="/jobs/"]');
+  var href = a ? a.href : '';
+  var m = href.match(/jobs\/[^?]*?(\d{6,})/);
+  var id = m ? m[1] : href.split('?')[0].split('/').pop();
+  var title = (el.querySelector('h2, h3, [data-testid="job-title"]') || {}).innerText || '';
+  var company = (el.querySelector('[data-testid="company-name"], [class*="company"]') || {}).innerText || '';
+  var loc = (el.querySelector('[data-testid="job-location"], [class*="location"]') || {}).innerText || '';
+  var salary = (el.querySelector('[data-testid="job-salary"]') || {}).innerText || '';
+  var t = el.querySelector('time[datetime]');
+  var posted = t ? (t.getAttribute('datetime') || '') : '';
+  return { externalJobId: 'xi_' + id, title: title.trim(), company: company.trim(), applyUrl: href.split('?')[0], location: loc.trim(), salary: salary.trim(), postedAt: posted };
+}).filter(function(j){ return j.title && j.applyUrl; }))`
+
+const stepstoneExtractJS = `JSON.stringify(Array.from(document.querySelectorAll('article[data-at="job-item"], article[data-testid="job-item"]')).map(function(el){
+  var a = el.querySelector('a[data-at="job-item-title"], a[href*="/stellenangebote--"]');
+  var href = a ? a.href : '';
+  var m = href.match(/--(\d+)-inline\.html/) || href.match(/--(\d+)\b/);
+  var id = m ? m[1] : '';
+  var title = a ? a.innerText.trim() : '';
+  var company = (el.querySelector('[data-at="job-item-company-name"]') || {}).innerText || '';
+  var loc = (el.querySelector('[data-at="job-item-location"]') || {}).innerText || '';
+  var salary = (el.querySelector('[data-at="job-item-salary-info"]') || {}).innerText || '';
+  var t = el.querySelector('time[datetime], [data-at="job-item-timestamp"] time');
+  var posted = t ? (t.getAttribute('datetime') || '') : '';
+  return { externalJobId: 'st_' + id, title: title, company: company.trim(), applyUrl: href.split('?')[0], location: loc.trim(), salary: salary.trim(), postedAt: posted };
+}).filter(function(j){ return j.title && j.applyUrl && j.externalJobId !== 'st_'; }))`
+
+const indeedExtractJS = `JSON.stringify(Array.from(document.querySelectorAll('div.job_seen_beacon, li div[class*="cardOutline"]')).map(function(el){
+  var a = el.querySelector('a[data-jk], h2.jobTitle a, a[href*="/rc/clk"], a[href*="/viewjob"]');
+  var id = a ? (a.getAttribute('data-jk') || ((a.href.match(/jk=([0-9a-f]+)/)||[])[1] || '')) : '';
+  var title = (el.querySelector('h2.jobTitle span[title], h2.jobTitle') || a || {}).innerText || '';
+  var company = (el.querySelector('[data-testid="company-name"]') || {}).innerText || '';
+  var loc = (el.querySelector('[data-testid="text-location"]') || {}).innerText || '';
+  var salary = (el.querySelector('[data-testid="attribute_snippet_testid"], .salary-snippet-container') || {}).innerText || '';
+  var dtxt = ((el.querySelector('[data-testid="myJobsStateDate"], .date, span.css-qvloho') || {}).innerText || '');
+  var posted = '';
+  var rel = dtxt.match(/vor\s+(\d+)\s+Tag/i) || dtxt.match(/(\d+)\s+days?\s+ago/i);
+  if (rel) { posted = new Date(Date.now() - parseInt(rel[1], 10) * 864e5).toISOString(); }
+  else if (/heute|gerade|today|just posted/i.test(dtxt)) { posted = new Date().toISOString(); }
+  return { externalJobId: 'in_' + id, title: title.trim(), company: company.trim(), applyUrl: id ? 'https://de.indeed.com/viewjob?jk=' + id : '', location: loc.trim(), salary: salary.trim(), postedAt: posted };
 }).filter(function(j){ return j.title && j.applyUrl; }))`

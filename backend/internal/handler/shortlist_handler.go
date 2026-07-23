@@ -16,6 +16,7 @@ type ShortlistReader interface {
 	List(ctx context.Context, f repository.ShortlistFilter) ([]models.ShortlistRow, error)
 	UpdateStatus(ctx context.Context, id, status string) (*models.ShortlistEntry, error)
 	Stats(ctx context.Context, profileID string) (map[string]int, error)
+	DeleteByProfile(ctx context.Context, profileID string) (int64, error)
 }
 
 // ShortlistHandler serves the curated shortlist (no apply).
@@ -54,6 +55,22 @@ func (h *ShortlistHandler) GetShortlist(c *gin.Context) {
 		items = []models.ShortlistRow{}
 	}
 	c.JSON(http.StatusOK, gin.H{"items": items, "total": len(items)})
+}
+
+// Clear handles DELETE /api/shortlist?profileId=... — wipes the profile's
+// shortlist so a run can start over.
+func (h *ShortlistHandler) Clear(c *gin.Context) {
+	profileID := c.Query("profileId")
+	if profileID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "profileId is required"})
+		return
+	}
+	n, err := h.store.DeleteByProfile(c.Request.Context(), profileID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"deleted": n})
 }
 
 type statusRequest struct {

@@ -6,3 +6,5 @@ backend/server
 /tmp/
 debug/
 data_profile1.json
+
+.claude/repo-map.md

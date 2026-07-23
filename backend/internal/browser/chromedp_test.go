@@ -39,6 +39,9 @@ func TestCookiesContain(t *testing.T) {
 
 func TestSpecsHaveAuthCookies(t *testing.T) {
 	for name, s := range specs {
+		if s.public {
+			continue // public portals have no login, hence no auth cookie
+		}
 		if s.authCookie == "" {
 			t.Errorf("platform %q missing authCookie", name)
 		}

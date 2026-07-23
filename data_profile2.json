@@ -5,7 +5,7 @@
     "locations": ["Remote", "Berlin, Germany"],
     "remoteOnly": false,
     "experienceLevels": ["entry","mid"],
-    "excludeCompanies": ["dunnhumby gmbh"],
+    "excludeCompanies": [],
     "minCompanyScore": 50
   }
 }

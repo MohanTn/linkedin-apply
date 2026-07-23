@@ -31,7 +31,7 @@ func (r *JobRepo) Upsert(ctx context.Context, j *models.Job) (*models.Job, error
 		   salary = EXCLUDED.salary,
 		   raw_data = EXCLUDED.raw_data
 		 RETURNING id, external_job_id, title, company, apply_url, platform, posted_at, first_seen_at, location, salary, created_at`,
-		j.ID, j.ExternalJobID, j.Title, j.Company, j.ApplyURL, j.Platform, j.PostedAt,
+		j.ID, j.ExternalJobID, j.Title, j.Company, j.ApplyURL, j.Platform, nullTime(j.PostedAt),
 		nullStr(j.Location), nullStr(j.Salary), nullJSON(j.RawData))
 	return scanJob(row)
 }
@@ -43,6 +43,26 @@ func (r *JobRepo) GetByID(ctx context.Context, id string) (*models.Job, error) {
 	return scanJob(row)
 }
 
+// CountReposts counts a company's postings that repeat an earlier posting with
+// the same (case-insensitive) title where the earlier one is at least gapDays
+// older — the "opened before, closed, reopened" ghost signal. Continuously open
+// roles reposted within the gap window do not count.
+func (r *JobRepo) CountReposts(ctx context.Context, company string, gapDays int) (int, error) {
+	var n int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM jobs j
+		 WHERE lower(j.company) = lower($1)
+		   AND EXISTS (
+		     SELECT 1 FROM jobs prev
+		     WHERE lower(prev.company) = lower(j.company)
+		       AND lower(prev.title) = lower(j.title)
+		       AND prev.id <> j.id
+		       AND COALESCE(prev.posted_at, prev.first_seen_at)
+		           < COALESCE(j.posted_at, j.first_seen_at) - ($2 * INTERVAL '1 day')
+		   )`, company, gapDays).Scan(&n)
+	return n, err
+}
+
 func (r *JobRepo) ExistsByExternalID(ctx context.Context, extID string) (bool, error) {
 	var exists bool
 	err := r.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM jobs WHERE external_job_id = $1)`, extID).Scan(&exists)
@@ -52,11 +72,13 @@ func (r *JobRepo) ExistsByExternalID(ctx context.Context, extID string) (bool, e
 func scanJob(s scanner) (*models.Job, error) {
 	var j models.Job
 	var extID, location, salary sql.NullString
+	var postedAt sql.NullTime
 	if err := s.Scan(&j.ID, &extID, &j.Title, &j.Company, &j.ApplyURL, &j.Platform,
-		&j.PostedAt, &j.FirstSeenAt, &location, &salary, &j.CreatedAt); err != nil {
+		&postedAt, &j.FirstSeenAt, &location, &salary, &j.CreatedAt); err != nil {
 		return nil, err
 	}
 	j.ExternalJobID = extID.String
+	j.PostedAt = postedAt.Time // zero when the portal gave no publish date
 	j.Location = location.String
 	j.Salary = salary.String
 	return &j, nil

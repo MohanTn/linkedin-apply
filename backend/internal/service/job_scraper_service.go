@@ -11,26 +11,29 @@ import (
 	"github.com/mohan/linkedin-apply-backend/internal/models"
 )
 
-// JobScraperService pulls recent listings via the authenticated browser session.
+// PortalAPI is an API-based job source (no browser, no login), e.g. the
+// official Arbeitsagentur jobsuche REST API.
+type PortalAPI interface {
+	ScrapeRecent(ctx context.Context, q browser.ScrapeQuery) ([]browser.ScrapedJob, error)
+}
+
+// JobScraperService pulls recent listings via the authenticated browser
+// session, a login-free public scrape, or a portal API — per platform.
 type JobScraperService struct {
 	auth    *AuthSessionService
 	browser browser.Browser
 	jobs    JobStore
+	apis    map[string]PortalAPI // platform -> API source
 }
 
-func NewJobScraperService(auth *AuthSessionService, b browser.Browser, jobs JobStore) *JobScraperService {
-	return &JobScraperService{auth: auth, browser: b, jobs: jobs}
+func NewJobScraperService(auth *AuthSessionService, b browser.Browser, jobs JobStore, apis map[string]PortalAPI) *JobScraperService {
+	return &JobScraperService{auth: auth, browser: b, jobs: jobs, apis: apis}
 }
 
-// ScrapeRecent logs in (or reuses a session), scrapes listings for the platform,
-// discards anything older than sinceHours or from an excluded company, and
-// upserts the survivors. Returns the stored jobs.
+// ScrapeRecent gathers listings for the platform (API source, public scrape, or
+// authenticated session), discards anything older than sinceHours or from an
+// excluded company, and upserts the survivors. Returns the stored jobs.
 func (s *JobScraperService) ScrapeRecent(ctx context.Context, profileID, platform string, prefs models.SearchPrefs, sinceHours int) ([]models.Job, error) {
-	sess, err := s.auth.EnsureSession(ctx, profileID, platform)
-	if err != nil {
-		return nil, err // ErrInvalidCreds / ErrNeeds2FA bubble up
-	}
-
 	q := browser.ScrapeQuery{
 		Keywords:         prefs.Keywords,
 		Locations:        prefs.Locations,
@@ -38,7 +41,21 @@ func (s *JobScraperService) ScrapeRecent(ctx context.Context, profileID, platfor
 		ExperienceLevels: prefs.ExperienceLevels,
 		SinceHours:       sinceHours,
 	}
-	scraped, err := s.browser.ScrapeRecent(ctx, platform, sess.Cookies, q)
+
+	var scraped []browser.ScrapedJob
+	var err error
+	switch {
+	case s.apis[platform] != nil:
+		scraped, err = s.apis[platform].ScrapeRecent(ctx, q)
+	case browser.Public(platform):
+		scraped, err = s.browser.ScrapeRecent(ctx, platform, nil, q)
+	default:
+		sess, aerr := s.auth.EnsureSession(ctx, profileID, platform)
+		if aerr != nil {
+			return nil, aerr // ErrInvalidCreds / ErrNeeds2FA bubble up
+		}
+		scraped, err = s.browser.ScrapeRecent(ctx, platform, sess.Cookies, q)
+	}
 	// Even on a partial error we keep whatever was gathered.
 	cutoff := time.Now().Add(-time.Duration(sinceHours) * time.Hour)
 	excluded := lowerSet(prefs.ExcludeCompanies)

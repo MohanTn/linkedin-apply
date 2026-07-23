@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,8 +16,37 @@ type RunState struct {
 	RunID     string `json:"runId"`
 	ProfileID string `json:"profileId"`
 	DiscoveryProgress
+	Log       []string  `json:"log,omitempty"` // step-by-step activity feed
 	StartedAt time.Time `json:"startedAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+const maxLogLines = 200
+
+// appendLog adds msg to the activity log. Counter updates of the same step
+// ("Shortlisting 4/10" -> "Shortlisting 5/10", "Researching Acme…" ->
+// "Researching Beta…") share their first word and overwrite the previous line
+// instead of flooding the feed; distinct steps append.
+func appendLog(log []string, msg string) []string {
+	if msg == "" || (len(log) > 0 && log[len(log)-1] == msg) {
+		return log
+	}
+	if len(log) > 0 && firstWord(log[len(log)-1]) == firstWord(msg) {
+		log[len(log)-1] = msg
+		return log
+	}
+	log = append(log, msg)
+	if len(log) > maxLogLines {
+		log = log[len(log)-maxLogLines:]
+	}
+	return log
+}
+
+func firstWord(s string) string {
+	if i := strings.IndexByte(s, ' '); i > 0 {
+		return s[:i]
+	}
+	return s
 }
 
 // ErrRunNotFound is returned by GetStatus for an unknown runID.
@@ -65,7 +95,10 @@ func (s *DiscoveryRunService) StartRun(profileID string, platforms []string, sin
 		}
 
 		_, err := s.discovery.DiscoverWithRunID(ctx, profileID, platforms, sinceHours, runID, func(p DiscoveryProgress) {
-			s.update(runID, func(rs *RunState) { rs.DiscoveryProgress = p })
+			s.update(runID, func(rs *RunState) {
+				rs.DiscoveryProgress = p
+				rs.Log = appendLog(rs.Log, p.Message)
+			})
 		})
 		if err != nil {
 			s.update(runID, func(rs *RunState) {
@@ -91,7 +124,9 @@ func (s *DiscoveryRunService) GetStatus(runID string) (RunState, error) {
 	if !ok {
 		return RunState{}, ErrRunNotFound
 	}
-	return *st, nil
+	cp := *st
+	cp.Log = append([]string(nil), st.Log...) // appendLog edits lines in place
+	return cp, nil
 }
 
 func (s *DiscoveryRunService) update(runID string, fn func(*RunState)) {
