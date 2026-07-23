@@ -1,0 +1,11 @@
+{
+  "name": "Wife",
+  "search": {
+    "keywords": ["quality", "office"],
+    "locations": ["Remote", "Berlin, Germany"],
+    "remoteOnly": false,
+    "experienceLevels": ["entry","mid"],
+    "excludeCompanies": ["dunnhumby gmbh"],
+    "minCompanyScore": 50
+  }
+}

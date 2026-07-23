@@ -1,0 +1,918 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Feature Implementation Plan – Multi-Profile Job Auto-Apply with Company Verification</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #f8fafc;
+            color: #1e293b;
+            padding: 2rem 1.5rem;
+            max-width: 1200px;
+            margin: 0 auto;
+            line-height: 1.5;
+        }
+        h1 {
+            font-size: 1.8rem;
+            margin-bottom: 0.25rem;
+            color: #0f172a;
+        }
+        .subtitle {
+            color: #64748b;
+            margin-bottom: 2rem;
+            font-size: 0.95rem;
+        }
+        .card {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        }
+        .card h2 {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #0f172a;
+            border-bottom: 1px solid #e2e8f0;
+            padding-bottom: 0.5rem;
+        }
+        .card h3 {
+            font-size: 1rem;
+            font-weight: 600;
+            margin: 1.5rem 0 0.5rem 0;
+            color: #1e293b;
+        }
+        label {
+            font-weight: 500;
+            display: block;
+            margin-bottom: 0.3rem;
+            font-size: 0.9rem;
+            color: #334155;
+        }
+        input,
+        textarea,
+        select {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            background: #fff;
+        }
+        input:focus,
+        textarea:focus,
+        select:focus {
+            outline: 2px solid #2563eb;
+            outline-offset: 1px;
+        }
+        textarea {
+            resize: vertical;
+            font-family: 'Courier New', monospace;
+        }
+        .flex-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            align-items: center;
+        }
+        .mt-1 {
+            margin-top: 0.75rem;
+        }
+        .mt-2 {
+            margin-top: 1.5rem;
+        }
+        .text-muted {
+            color: #64748b;
+        }
+        .text-small {
+            font-size: 0.85rem;
+        }
+
+        .btn {
+            background: #f1f5f9;
+            border: 1px solid #d1d5db;
+            padding: 0.4rem 1rem;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: 0.15s;
+            color: #1e293b;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+        .btn:hover {
+            background: #e2e8f0;
+        }
+        .btn-primary {
+            background: #2563eb;
+            border-color: #2563eb;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #1d4ed8;
+        }
+        .btn-danger {
+            background: #ef4444;
+            border-color: #ef4444;
+            color: white;
+        }
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+        .btn-success {
+            background: #16a34a;
+            border-color: #16a34a;
+            color: white;
+        }
+        .btn-success:hover {
+            background: #15803d;
+        }
+        .btn-outline {
+            background: transparent;
+            border: 1px dashed #2563eb;
+            color: #2563eb;
+        }
+        .btn-outline:hover {
+            background: #eff6ff;
+        }
+        .btn-sm {
+            padding: 0.2rem 0.6rem;
+            font-size: 0.8rem;
+        }
+        .btn-block {
+            width: 100%;
+            justify-content: center;
+        }
+
+        .item-block {
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            background: #fafcfc;
+        }
+        .item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+        .item-header .item-title {
+            font-weight: 600;
+            font-size: 1rem;
+            flex: 1;
+        }
+        .item-fields {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.5rem;
+        }
+        .item-fields .full-width {
+            grid-column: 1 / -1;
+        }
+        .item-fields label {
+            font-size: 0.8rem;
+            margin-bottom: 0.1rem;
+            color: #475569;
+        }
+        .pseudo-code {
+            background: #f1f5f9;
+            padding: 0.5rem;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            white-space: pre-wrap;
+            border: 1px solid #e2e8f0;
+            min-height: 3rem;
+        }
+        @media (max-width:700px) {
+            .item-fields {
+                grid-template-columns: 1fr;
+            }
+            .item-fields .full-width {
+                grid-column: 1;
+            }
+        }
+
+        .table-wrap {
+            overflow-x: auto;
+            margin: 1rem 0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        th {
+            background: #f1f5f9;
+            text-align: left;
+            padding: 0.5rem 0.8rem;
+            font-weight: 600;
+            border-bottom: 2px solid #e2e8f0;
+        }
+        td {
+            padding: 0.5rem 0.8rem;
+            border-bottom: 1px solid #e2e8f0;
+            vertical-align: middle;
+        }
+
+        .approval-gate {
+            background: #f0fdf4;
+            border-left: 4px solid #16a34a;
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            color: #166534;
+            font-weight: 500;
+        }
+
+        #copy-btn {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 0.6rem 1.2rem;
+            border-radius: 8px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: 0.15s;
+        }
+        #copy-btn:hover {
+            opacity: 0.9;
+        }
+        #copy-btn.copied {
+            background: #16a34a;
+        }
+        .badge {
+            display: inline-block;
+            padding: 0.1rem 0.5rem;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .badge-create {
+            background: #dbeafe;
+            color: #1d4ed8;
+        }
+        .badge-update {
+            background: #fef3c7;
+            color: #b45309;
+        }
+        .badge-delete {
+            background: #fee2e2;
+            color: #b91c1c;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>⚙️ Feature Implementation Plan – Multi-Profile Job Auto-Apply with Company Verification</h1>
+    <p class="subtitle">Ultra-detailed, file-by-file plan for building a feature inside an existing codebase. <br>Edit every detail, then copy the plan to feed into an AI or hand off to a developer.</p>
+
+    <!-- OVERVIEW -->
+    <div class="card">
+        <h2>📌 Feature Overview</h2>
+        <div class="flex-row">
+            <div style="flex:2;"><label>Feature Title</label><input id="feature-title" placeholder="e.g. Add two-factor authentication" /></div>
+            <div style="flex:1;"><label>Target Module / Context</label><input id="feature-module" placeholder="e.g. User Service" /></div>
+        </div>
+        <div class="mt-1"><label>User Story / Goal</label><textarea id="feature-goal" rows="2" placeholder="As a user, I want to ... so that ..."></textarea></div>
+        <div class="mt-1"><label>Existing Codebase Context (files, classes, DB schemas that already exist)</label><textarea id="feature-context" rows="2" placeholder="e.g. We already have User.php, AuthService.php, and a 'users' table with columns..."></textarea></div>
+    </div>
+
+    <!-- DESIGN PATTERNS & OVERRIDES (Crucial for tweaking) -->
+    <div class="card">
+        <h2>🧩 Design Patterns & Architectural Overrides</h2>
+        <p class="text-muted text-small">Explicitly state which patterns to use. <strong>Change these to alter the architecture</strong> (e.g., switch from Repository to Service Layer).</p>
+        <div class="flex-row">
+            <div style="flex:1;"><label>Core Pattern</label><input id="pattern-core" placeholder="e.g. MVC, Layered Architecture" value="Layered (Controller -> Service -> Repository)" /></div>
+            <div style="flex:1;"><label>Business Logic Pattern</label><input id="pattern-business" placeholder="e.g. Transaction Script, Domain Model" value="Transaction Script" /></div>
+        </div>
+        <div class="mt-1"><label>Specific Pattern Implementations (e.g., Factory vs Builder, Repository vs DAO)</label>
+            <textarea id="pattern-specific" rows="2" placeholder="e.g. Use Repository pattern for User data. Use Factory pattern to create complex DTOs."></textarea>
+        </div>
+        <div class="mt-1"><label>Explicit Overrides / Constraints (Change these to deviate from standard patterns)</label>
+            <textarea id="pattern-overrides" rows="2" placeholder="e.g. Do NOT create a separate Repository for this; put logic directly in Service. Use Singleton for CacheManager."></textarea>
+        </div>
+    </div>
+
+    <!-- SOLUTION APPROACH (EXPLANATION) -->
+    <div class="card">
+        <h2>💡 Solution Approach & Rationale</h2>
+        <p class="text-muted text-small">Explain the high-level design decisions, trade-offs, and rationale before diving into implementation. This section helps reviewers understand the "why" before the "what".</p>
+        <div id="approach-container"></div>
+        <button id="add-approach-btn" class="btn btn-outline btn-block mt-1">＋ Add design decision</button>
+    </div>
+
+    <!-- FILE MANIFEST (ORDERED) -->
+    <div class="card">
+        <h2>📂 File Change Manifest (In Order of Execution)</h2>
+        <p class="text-muted text-small">List every file that needs to be created, updated, or deleted. Order them by build sequence. Add pseudo-code for each.</p>
+        <div id="files-container"></div>
+        <button id="add-file-btn" class="btn btn-outline btn-block mt-1">＋ Add file to manifest</button>
+    </div>
+
+    <!-- CORE BUSINESS LOGIC (PSEUDO-CODE) -->
+    <div class="card">
+        <h2>🧠 Core Business Logic (Detailed Pseudo-Code)</h2>
+        <p class="text-muted text-small">The main algorithm or orchestration of the feature. Write this in plain English + pseudo-code so an AI can translate it into actual code.</p>
+        <div id="logic-container"></div>
+        <button id="add-logic-btn" class="btn btn-outline btn-block mt-1">＋ Add logic step</button>
+    </div>
+
+    <!-- API / FUNCTION CONTRACTS -->
+    <div class="card">
+        <h2>📡 Function / API Contracts</h2>
+        <p class="text-muted text-small">Inputs, outputs, signatures for the main entry points (Controllers, Event Handlers, CLI commands).</p>
+        <div id="contracts-container"></div>
+        <button id="add-contract-btn" class="btn btn-outline btn-block mt-1">＋ Add contract</button>
+    </div>
+
+    <!-- EDGE CASES & ERROR HANDLING -->
+    <div class="card">
+        <h2>🚨 Edge Cases & Error Handling</h2>
+        <p class="text-muted text-small">What happens when things go wrong? Specify validation rules, exceptions, and fallbacks.</p>
+        <div id="edges-container"></div>
+        <button id="add-edge-btn" class="btn btn-outline btn-block mt-1">＋ Add edge case</button>
+    </div>
+
+    <!-- TESTING STRATEGY -->
+    <div class="card">
+        <h2>🧪 Testing Strategy</h2>
+        <p class="text-muted text-small">Specific test scenarios per file or logic unit.</p>
+        <div id="tests-container"></div>
+        <button id="add-test-btn" class="btn btn-outline btn-block mt-1">＋ Add test scenario</button>
+    </div>
+
+    <!-- EXPORT -->
+    <div class="card">
+        <h2>📋 Export & Execution</h2>
+        <div class="approval-gate">
+            <strong>✅ Ready to generate code when:</strong> File manifest is ordered, logic is pseudo-coded, and patterns are defined.
+        </div>
+        <div class="flex-row mt-1">
+            <button id="copy-btn">📋 Copy AI-Ready Plan</button>
+            <button id="reset-btn" class="btn btn-danger">Reset all data</button>
+        </div>
+        <p class="text-muted text-small mt-1">The copied text is a structured prompt perfect for ChatGPT, Claude, or any coding AI.</p>
+    </div>
+
+    <script>
+        // Filled by featurePlan-inject.js from the AI's plan. Falls back to an
+        // empty plan when opened without injection (e.g. developing the template).
+        const INITIAL_DATA = {"title":"Multi-Profile Job Discovery with Company Verification","module":"Job Discovery Engine","goal":"As a job seeker, I log in with my own LinkedIn and Glassdoor credentials so an automated browser session (Selenium-style) gathers every open position posted in the last 24 hours, runs a ghost-job company check on each, and hands me a curated, ranked list of jobs to apply to myself — each with a direct apply link. The app NEVER submits an application on my behalf.","context":"Greenfield project with Go backend + Next.js frontend. Backend: Go with gin-gonic for REST API, chromedp for logged-in browser automation (the Selenium equivalent for Go). Frontend: Next.js with React, TypeScript, TanStack Query. Database: PostgreSQL with sqlc for type-safe queries. Scope is discovery + verification only; applying is done manually by the user.","patternCore":"Layered (Handler -> Service -> Repository) with Go interfaces for dependency injection","patternBusiness":"Transaction Script pattern with domain models as Go structs","patternSpecific":"Gin-gonic for HTTP routing, sqlc for database type safety, chromedp for a logged-in headless browser session, Next.js App Router with TypeScript, TanStack Query for server state, middleware for auth/logging.","patternOverrides":"ProfileService manages credentials (from env) + search preferences (JSON). AuthSessionService owns the logged-in browser session and cookie persistence. CompanyVerificationService is injected into DiscoveryService, which orchestrates scrape -> verify -> shortlist. There is deliberately NO ApplyService: the app never applies.","solutionApproach":[{"id":"s-1","aspect":"Credentialed Browser Automation (Selenium-style login)","rationale":"Each profile stores LinkedIn/Glassdoor username + password in env. AuthSessionService uses chromedp to log in, then persists the session cookies per profile so later discovery runs reuse the session instead of re-logging in. This is the Go equivalent of a logged-in Selenium script. Trade-off: real logins can hit 2FA/checkpoints, so those are surfaced to the user rather than bypassed."},{"id":"s-2","aspect":"Fresh-Listings Scraping (last 24 hours)","rationale":"Scraper applies the platform \"Past 24 hours\" date filter (LinkedIn f_TPR=r86400, Glassdoor fromAge=1), paginates all result pages, and extracts title, company, apply URL, posted time, location, salary. De-duplicates by externalJobId across runs and merges the same job seen on both platforms. Trade-off: date filters are approximate, so postedAt is also parsed and re-checked against a 24h window."},{"id":"s-3","aspect":"Company Verification (ghost-job check)","rationale":"Before a job reaches the shortlist, CompanyVerificationService scores the company (LinkedIn presence, Glassdoor reviews/rating, posting recency/reposts). Ghost-flagged jobs are NOT silently dropped — they are tagged is_ghost and hidden behind a filter so the user still decides. Results cached with a TTL. Trade-off: adds latency; run in parallel goroutines."},{"id":"s-4","aspect":"Curated Shortlist Cockpit (no apply)","rationale":"The cockpit shows a ranked shortlist of last-24h jobs that passed the company check, each with the direct apply link the user clicks themselves. The user manually flips each entry between new / saved / dismissed / applied. The app tracks these states for the users own bookkeeping but performs no submission. Trade-off: DB is source of truth for the shortlist; JSON files only hold search preferences."},{"id":"s-5","aspect":"Discovery Runs (on-demand + progress)","rationale":"A \"Gather last 24h\" action enqueues a DiscoveryRun processed by a goroutine: login/reuse-session -> scrape -> verify -> upsert shortlist. Progress (found / verified / shortlisted / ghost) streams to the cockpit via polling or SSE. Trade-off: single-process goroutine (no external queue); simpler, no horizontal scale."}],"files":[{"id":"f-1","order":1,"action":"create","path":"backend/internal/models/profile.go","description":"Profile domain model","pseudoCode":"type Profile struct {\n  ID              string\n  Name            string\n  LinkedinEmail   string\n  GlassdoorEmail  string\n  ProfileDataPath string // path to data_profileN.json (search preferences)\n  CreatedAt       time.Time\n  UpdatedAt       time.Time\n}"},{"id":"f-2","order":2,"action":"create","path":"backend/internal/models/job.go","description":"Job domain model (a scraped listing)","pseudoCode":"type Job struct {\n  ID            string\n  ExternalJobID string\n  Title         string\n  Company       string\n  ApplyURL      string // direct apply/listing link the user clicks\n  Platform      string // \"linkedin\" or \"glassdoor\"\n  PostedAt      time.Time      // parsed posting time (used for the 24h window)\n  FirstSeenAt   time.Time      // when our scraper first saw it\n  Location      string\n  Salary        sql.NullString\n  RawData       json.RawMessage\n  CreatedAt     time.Time\n}"},{"id":"f-3","order":3,"action":"create","path":"backend/internal/models/company_verification.go","description":"Company verification (ghost-job) result","pseudoCode":"type CompanyVerification struct {\n  ID                  string\n  Company             string\n  IsGhostJob          bool\n  Score               int // 0-100\n  VerificationMethods json.RawMessage\n  Details             json.RawMessage\n  ExpiresAt           time.Time\n  CreatedAt           time.Time\n}"},{"id":"f-4","order":4,"action":"create","path":"backend/internal/models/shortlist.go","description":"Shortlist entry: a discovered job + its verification, with a user-managed status (replaces the old Application model)","pseudoCode":"type ShortlistEntry struct {\n  ID             string\n  ProfileID      string\n  JobID          string\n  VerificationID sql.NullString\n  Score          int    // company verification score snapshot\n  IsGhost        bool\n  ApplyURL       string // convenience copy of Job.ApplyURL\n  Status         string // \"new\" | \"saved\" | \"dismissed\" | \"applied\" (user sets manually)\n  DiscoveredAt   time.Time\n}"},{"id":"f-5","order":5,"action":"create","path":"backend/internal/models/session.go","description":"Persisted logged-in browser session per profile/platform","pseudoCode":"type BrowserSession struct {\n  ID        string\n  ProfileID string\n  Platform  string // \"linkedin\" | \"glassdoor\"\n  Cookies   json.RawMessage // serialized cookie jar\n  Status    string // \"active\" | \"expired\" | \"needs_2fa\" | \"invalid_creds\"\n  LastLogin time.Time\n  ExpiresAt time.Time\n}"},{"id":"f-6","order":6,"action":"create","path":"backend/sql/schema.sql","description":"PostgreSQL schema: profiles, jobs, company_verifications, shortlist, browser_sessions (no applications table)","pseudoCode":"CREATE TABLE profiles (\n  id TEXT PRIMARY KEY,\n  name TEXT NOT NULL,\n  linkedin_email TEXT,\n  glassdoor_email TEXT,\n  profile_data_path TEXT,\n  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,\n  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP\n);\n\nCREATE TABLE jobs (\n  id TEXT PRIMARY KEY,\n  external_job_id TEXT UNIQUE,\n  title TEXT NOT NULL,\n  company TEXT NOT NULL,\n  apply_url TEXT NOT NULL,\n  platform TEXT NOT NULL,\n  posted_at TIMESTAMPTZ,\n  first_seen_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,\n  location TEXT,\n  salary TEXT,\n  raw_data JSONB,\n  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP\n);\nCREATE INDEX idx_jobs_platform ON jobs(platform);\nCREATE INDEX idx_jobs_company ON jobs(company);\nCREATE INDEX idx_jobs_posted_at ON jobs(posted_at);\n\nCREATE TABLE company_verifications (\n  id TEXT PRIMARY KEY,\n  company TEXT UNIQUE NOT NULL,\n  is_ghost_job BOOLEAN NOT NULL,\n  score INTEGER NOT NULL,\n  verification_methods JSONB,\n  details JSONB,\n  expires_at TIMESTAMPTZ NOT NULL,\n  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP\n);\nCREATE INDEX idx_company_verifications_company ON company_verifications(company);\n\nCREATE TABLE shortlist (\n  id TEXT PRIMARY KEY,\n  profile_id TEXT NOT NULL REFERENCES profiles(id),\n  job_id TEXT NOT NULL REFERENCES jobs(id),\n  verification_id TEXT REFERENCES company_verifications(id),\n  score INTEGER NOT NULL DEFAULT 0,\n  is_ghost BOOLEAN NOT NULL DEFAULT FALSE,\n  apply_url TEXT NOT NULL,\n  status TEXT NOT NULL DEFAULT 'new', -- new | saved | dismissed | applied\n  discovered_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP\n);\nCREATE UNIQUE INDEX idx_shortlist_profile_job ON shortlist(profile_id, job_id);\nCREATE INDEX idx_shortlist_status ON shortlist(status);\nCREATE INDEX idx_shortlist_discovered_at ON shortlist(discovered_at);\n\nCREATE TABLE browser_sessions (\n  id TEXT PRIMARY KEY,\n  profile_id TEXT NOT NULL REFERENCES profiles(id),\n  platform TEXT NOT NULL,\n  cookies JSONB,\n  status TEXT NOT NULL,\n  last_login TIMESTAMPTZ,\n  expires_at TIMESTAMPTZ,\n  UNIQUE(profile_id, platform)\n);"},{"id":"f-7","order":7,"action":"create","path":"backend/sql/queries.sql","description":"sqlc queries for profiles, jobs, verifications, shortlist, sessions","pseudoCode":"-- name: GetProfileByID :one\nSELECT * FROM profiles WHERE id = $1;\n\n-- name: ListProfiles :many\nSELECT * FROM profiles ORDER BY created_at DESC;\n\n-- name: UpsertJob :one\nINSERT INTO jobs (id, external_job_id, title, company, apply_url, platform, posted_at, location, salary, raw_data)\nVALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)\nON CONFLICT (external_job_id) DO UPDATE SET posted_at = EXCLUDED.posted_at\nRETURNING *;\n\n-- name: GetCompanyVerification :one\nSELECT * FROM company_verifications WHERE company = $1 AND expires_at > CURRENT_TIMESTAMP;\n\n-- name: UpsertShortlistEntry :one\nINSERT INTO shortlist (id, profile_id, job_id, verification_id, score, is_ghost, apply_url, status)\nVALUES ($1,$2,$3,$4,$5,$6,$7,'new')\nON CONFLICT (profile_id, job_id) DO UPDATE SET score = EXCLUDED.score, is_ghost = EXCLUDED.is_ghost\nRETURNING *;\n\n-- name: ListShortlist :many\nSELECT s.*, j.title, j.company, j.location, j.posted_at\nFROM shortlist s JOIN jobs j ON j.id = s.job_id\nWHERE s.profile_id = $1\n  AND ($2::text IS NULL OR s.status = $2)\n  AND ($3::bool IS NULL OR s.is_ghost = $3)\n  AND s.score >= $4\nORDER BY s.score DESC, j.posted_at DESC\nLIMIT $5 OFFSET $6;\n\n-- name: UpdateShortlistStatus :one\nUPDATE shortlist SET status = $2 WHERE id = $1 RETURNING *;\n\n-- name: GetSession :one\nSELECT * FROM browser_sessions WHERE profile_id = $1 AND platform = $2;\n\n-- name: UpsertSession :one\nINSERT INTO browser_sessions (id, profile_id, platform, cookies, status, last_login, expires_at)\nVALUES ($1,$2,$3,$4,$5,$6,$7)\nON CONFLICT (profile_id, platform) DO UPDATE\n  SET cookies = EXCLUDED.cookies, status = EXCLUDED.status, last_login = EXCLUDED.last_login, expires_at = EXCLUDED.expires_at\nRETURNING *;"},{"id":"f-8","order":8,"action":"create","path":"backend/internal/repository/profile_repository.go","description":"Profile repository: CRUD + sync from env/JSON","pseudoCode":"type ProfileRepository struct { db *sql.DB; queries *database.Queries }\n\nfunc (r *ProfileRepository) GetByID(ctx context.Context, id string) (*models.Profile, error) {\n  return r.queries.GetProfileByID(ctx, id)\n}\nfunc (r *ProfileRepository) GetAll(ctx context.Context) ([]*models.Profile, error) {\n  return r.queries.ListProfiles(ctx)\n}\nfunc (r *ProfileRepository) LoadFromEnvAndFiles(ctx context.Context) error {\n  // Parse env PROFILE_*_EMAIL, load data_profile*.json (search prefs), sync to DB\n}"},{"id":"f-9","order":9,"action":"create","path":"backend/internal/repository/job_repository.go","description":"Job repository: upsert scraped jobs, dedupe, query recent","pseudoCode":"type JobRepository struct { db *sql.DB; queries *database.Queries }\n\nfunc (r *JobRepository) Upsert(ctx context.Context, j *models.Job) (*models.Job, error) {\n  // ON CONFLICT(external_job_id) keeps first_seen_at, refreshes posted_at\n}\nfunc (r *JobRepository) ExistsByExternalID(ctx context.Context, extID string) (bool, error) { }"},{"id":"f-10","order":10,"action":"create","path":"backend/internal/repository/company_verification_repository.go","description":"Verification repository with TTL cache","pseudoCode":"type CompanyVerificationRepository struct { db *sql.DB; queries *database.Queries }\n\nfunc (r *CompanyVerificationRepository) GetByCompany(ctx context.Context, company string) (*models.CompanyVerification, error) {\n  return r.queries.GetCompanyVerification(ctx, company) // only non-expired\n}\nfunc (r *CompanyVerificationRepository) Create(ctx context.Context, cv *models.CompanyVerification) error {\n  // Insert with TTL (e.g. 7 days)\n}"},{"id":"f-11","order":11,"action":"create","path":"backend/internal/repository/shortlist_repository.go","description":"Shortlist repository: upsert entries, list with filters, update user status","pseudoCode":"type ShortlistRepository struct { db *sql.DB; queries *database.Queries }\n\nfunc (r *ShortlistRepository) Upsert(ctx context.Context, e *models.ShortlistEntry) (*models.ShortlistEntry, error) { }\nfunc (r *ShortlistRepository) List(ctx context.Context, f ShortlistFilter) ([]*ShortlistRow, error) {\n  // filters: profileID, status, includeGhost, minScore, pagination; sorted by score, postedAt\n}\nfunc (r *ShortlistRepository) UpdateStatus(ctx context.Context, id, status string) (*models.ShortlistEntry, error) { }"},{"id":"f-12","order":12,"action":"create","path":"backend/internal/service/profile_service.go","description":"Profile service: load credentials from env, search preferences from JSON","pseudoCode":"type ProfileService struct { repo *repository.ProfileRepository }\n\nfunc (s *ProfileService) LoadProfiles(ctx context.Context) ([]*models.Profile, error) {\n  // 1. Parse env PROFILE_1_LINKEDIN_EMAIL/PASSWORD, PROFILE_1_GLASSDOOR_*, etc.\n  // 2. For each, load data_profileN.json (keywords, locations, filters)\n  // 3. Sync to DB, return list\n}\nfunc (s *ProfileService) GetCredentials(ctx context.Context, profileID, platform string) (email, password string, err error) { }\nfunc (s *ProfileService) GetSearchPrefs(ctx context.Context, profileID string) (*SearchPrefs, error) {\n  // keywords[], locations[], remoteOnly, experienceLevels[], excludeCompanies[]\n}"},{"id":"f-13","order":13,"action":"create","path":"backend/internal/service/auth_session_service.go","description":"Selenium-style login automation: log in with stored creds, persist cookies, detect 2FA/checkpoint","pseudoCode":"type AuthSessionService struct {\n  profileService *ProfileService\n  sessionRepo    *repository.SessionRepository\n}\n\n// EnsureSession returns a chromedp context already authenticated for the platform.\nfunc (s *AuthSessionService) EnsureSession(ctx context.Context, profileID, platform string) (*Session, error) {\n  // 1. Load persisted cookies; if present and not expired -> inject into a fresh chromedp\n  //    context, hit a logged-in page to confirm still valid; if valid -> return.\n  // 2. Otherwise perform a fresh login:\n  //    a. Get creds from ProfileService\n  //    b. chromedp: navigate to login, type email + password, submit\n  //    c. Detect outcomes:\n  //         - success            -> serialize cookies, UpsertSession(status='active'); return\n  //         - wrong creds banner  -> UpsertSession(status='invalid_creds'); return ErrInvalidCreds\n  //         - 2FA / checkpoint / CAPTCHA -> UpsertSession(status='needs_2fa'); return ErrNeeds2FA\n  //           (surfaced to the user; optionally run headful so they finish it, then persist)\n  // 3. Each profile uses its OWN cookie jar/context (no session leakage between profiles).\n}"},{"id":"f-14","order":14,"action":"create","path":"backend/internal/service/company_verification_service.go","description":"Company verification: LinkedIn presence, Glassdoor reviews, posting recency","pseudoCode":"type CompanyVerificationService struct {\n  repo       *repository.CompanyVerificationRepository\n  httpClient *http.Client\n}\n\nfunc (s *CompanyVerificationService) Verify(ctx context.Context, company, platform string) (*models.CompanyVerification, error) {\n  // 1. Return cached (non-expired) result if present\n  // 2. Else run checks in parallel goroutines: LinkedIn profile, Glassdoor reviews/rating, posting age/repost count\n  // 3. Score = weighted combination; isGhostJob = score < 40\n  // 4. Store with TTL; return\n}"},{"id":"f-15","order":15,"action":"create","path":"backend/internal/service/job_scraper_service.go","description":"Scraper: use the logged-in session to pull jobs posted in the last N hours","pseudoCode":"type JobScraperService struct {\n  auth    *AuthSessionService\n  jobRepo *repository.JobRepository\n}\n\nfunc (s *JobScraperService) ScrapeRecent(ctx context.Context, profileID, platform string, prefs *SearchPrefs, sinceHours int) ([]*models.Job, error) {\n  // 1. session := auth.EnsureSession(profileID, platform)\n  // 2. Build search URL with the \"past 24h\" filter (LinkedIn f_TPR=r86400, Glassdoor fromAge=1)\n  //    plus keywords/locations/remote/experience from prefs\n  // 3. Paginate all result pages using the authenticated context\n  // 4. Extract title, company, applyURL, postedAt, location, salary\n  // 5. Drop anything with postedAt older than sinceHours (belt-and-suspenders on the filter)\n  // 6. Upsert (dedupe by externalJobId); return new+seen jobs\n}"},{"id":"f-16","order":16,"action":"create","path":"backend/internal/service/discovery_service.go","description":"Discovery orchestrator: scrape recent jobs -> verify companies -> build shortlist. NEVER applies. (replaces apply_service.go)","pseudoCode":"type DiscoveryService struct {\n  scraper       *JobScraperService\n  verification  *CompanyVerificationService\n  shortlistRepo *repository.ShortlistRepository\n  profileSvc    *ProfileService\n}\n\nfunc (s *DiscoveryService) Discover(ctx context.Context, profileID string, platforms []string, sinceHours int, progress func(DiscoveryProgress)) (int, error) {\n  // 1. prefs := profileSvc.GetSearchPrefs(profileID)\n  // 2. For each platform: jobs := scraper.ScrapeRecent(profileID, platform, prefs, sinceHours)\n  // 3. Merge/dedupe jobs across platforms (same company+title)\n  // 4. For each unique company, verification := verification.Verify(company) (parallel, cached)\n  // 5. Upsert a ShortlistEntry per job with score + is_ghost + applyURL; status defaults 'new'\n  //    (ghost jobs are kept but flagged, not dropped)\n  // 6. Emit progress {found, verified, shortlisted, ghost} for the cockpit\n  // 7. Return count of shortlisted jobs. NO application is ever submitted.\n}"},{"id":"f-17","order":17,"action":"create","path":"backend/internal/service/discovery_run_service.go","description":"Background discovery runs via goroutine + progress channel (replaces apply_queue_service.go)","pseudoCode":"type DiscoveryRunService struct {\n  discovery *DiscoveryService\n  runs      map[string]*RunState // runID -> state (mutex-guarded)\n}\n\nfunc (s *DiscoveryRunService) StartRun(profileID string, platforms []string, sinceHours int) (runID string, err error) {\n  // Generate runID; spawn goroutine that calls discovery.Discover with a progress callback\n  // that updates runs[runID]; return runID immediately\n}\nfunc (s *DiscoveryRunService) GetStatus(runID string) (*RunState, error) {\n  // {runId, phase: \"login|scraping|verifying|done|error\", found, verified, shortlisted, ghost, error}\n}"},{"id":"f-18","order":18,"action":"create","path":"backend/internal/handler/profile_handler.go","description":"HTTP handlers for profiles + login validation","pseudoCode":"type ProfileHandler struct {\n  profileService *service.ProfileService\n  authService    *service.AuthSessionService\n}\n\nfunc (h *ProfileHandler) GetProfiles(c *gin.Context) {\n  // GET /api/profiles\n}\nfunc (h *ProfileHandler) Login(c *gin.Context) {\n  // POST /api/profiles/:id/login {platform}\n  // Calls authService.EnsureSession; returns {ok, status: active|invalid_creds|needs_2fa}\n}"},{"id":"f-19","order":19,"action":"create","path":"backend/internal/handler/discovery_handler.go","description":"HTTP handlers to trigger + monitor discovery runs (replaces apply_handler.go)","pseudoCode":"type DiscoveryHandler struct { runService *service.DiscoveryRunService }\n\nfunc (h *DiscoveryHandler) StartRun(c *gin.Context) {\n  // POST /api/discovery/run {profileId, platforms:[\"linkedin\",\"glassdoor\"], sinceHours:24}\n  runID, err := h.runService.StartRun(profileID, platforms, sinceHours)\n  c.JSON(http.StatusOK, gin.H{\"runId\": runID})\n}\nfunc (h *DiscoveryHandler) GetStatus(c *gin.Context) {\n  // GET /api/discovery/:runId/status\n}"},{"id":"f-20","order":20,"action":"create","path":"backend/internal/handler/shortlist_handler.go","description":"HTTP handlers for the cockpit shortlist (replaces application_handler.go)","pseudoCode":"type ShortlistHandler struct { repo *repository.ShortlistRepository }\n\nfunc (h *ShortlistHandler) GetShortlist(c *gin.Context) {\n  // GET /api/shortlist?profileId=&status=&includeGhost=&minScore=&page=&limit=\n  // Returns curated jobs with applyUrl, company score, is_ghost, status\n}\nfunc (h *ShortlistHandler) UpdateStatus(c *gin.Context) {\n  // PATCH /api/shortlist/:id {status: \"saved\"|\"dismissed\"|\"applied\"}\n}\nfunc (h *ShortlistHandler) GetStats(c *gin.Context) {\n  // GET /api/shortlist/stats/:profileId -> {new, saved, dismissed, applied, ghost}\n}"},{"id":"f-21","order":21,"action":"create","path":"backend/cmd/main.go","description":"Go main: router, DB, services, background run manager (no apply routes)","pseudoCode":"func main() {\n  // 1. Connect to PostgreSQL; run migrations (schema.sql)\n  // 2. Init repositories, services (Profile, AuthSession, Verification, Scraper, Discovery, DiscoveryRun), handlers\n  // 3. Setup Gin router\n  // 4. Listen on :8080; graceful shutdown\n}\n\nfunc setupRouter(h ...) *gin.Engine {\n  r := gin.Default()\n  r.GET(\"/api/profiles\", h.profile.GetProfiles)\n  r.POST(\"/api/profiles/:id/login\", h.profile.Login)\n  r.POST(\"/api/discovery/run\", h.discovery.StartRun)\n  r.GET(\"/api/discovery/:runId/status\", h.discovery.GetStatus)\n  r.GET(\"/api/shortlist\", h.shortlist.GetShortlist)\n  r.PATCH(\"/api/shortlist/:id\", h.shortlist.UpdateStatus)\n  r.GET(\"/api/shortlist/stats/:profileId\", h.shortlist.GetStats)\n  // NOTE: no /api/apply route exists — applying is manual by design\n  return r\n}"},{"id":"f-22","order":22,"action":"create","path":"backend/.env.example","description":"Environment variables template (credentials for login automation)","pseudoCode":"# Multi-profile login credentials (used by the Selenium-style browser session)\nPROFILE_1_LINKEDIN_EMAIL=john@example.com\nPROFILE_1_LINKEDIN_PASSWORD=****\nPROFILE_1_GLASSDOOR_EMAIL=john@example.com\nPROFILE_1_GLASSDOOR_PASSWORD=****\n\nPROFILE_2_LINKEDIN_EMAIL=jane@example.com\nPROFILE_2_LINKEDIN_PASSWORD=****\n\n# Database\nDATABASE_URL=postgresql://user:password@localhost:5432/linkedin_apply\n\n# Server / automation\nPORT=8080\nHEADLESS=true   # set false to complete a 2FA/checkpoint manually"},{"id":"f-23","order":23,"action":"create","path":"backend/go.mod","description":"Go module dependencies","pseudoCode":"module github.com/user/linkedin-apply-backend\n\ngo 1.21\n\nrequire (\n  github.com/gin-gonic/gin v1.9.1\n  github.com/lib/pq v1.10.9\n  github.com/chromedp/chromedp v0.9.2\n  github.com/google/uuid v1.3.0\n)"},{"id":"f-24","order":24,"action":"create","path":"frontend/package.json","description":"Next.js project config","pseudoCode":"{\n  \"name\": \"job-discovery-frontend\",\n  \"version\": \"1.0.0\",\n  \"scripts\": { \"dev\": \"next dev\", \"build\": \"next build\", \"start\": \"next start\", \"lint\": \"next lint\" },\n  \"dependencies\": {\n    \"next\": \"^14.0.0\",\n    \"react\": \"^18.2.0\",\n    \"@tanstack/react-query\": \"^5.0.0\",\n    \"typescript\": \"^5.0.0\"\n  }\n}"},{"id":"f-25","order":25,"action":"create","path":"frontend/src/types/api.ts","description":"TypeScript types for API responses","pseudoCode":"export interface Profile { id: string; name: string; linkedinEmail: string; glassdoorEmail: string; }\n\nexport interface ShortlistItem {\n  id: string;\n  profileId: string;\n  jobId: string;\n  title: string;\n  company: string;\n  location: string;\n  applyUrl: string;      // user opens this and applies themselves\n  score: number;         // company verification score 0-100\n  isGhost: boolean;\n  postedAt: string;\n  status: 'new' | 'saved' | 'dismissed' | 'applied';\n}\n\nexport interface DiscoveryStatus {\n  runId: string;\n  phase: 'login' | 'scraping' | 'verifying' | 'done' | 'error';\n  found: number; verified: number; shortlisted: number; ghost: number;\n  error?: string;\n}"},{"id":"f-26","order":26,"action":"create","path":"frontend/src/lib/api.ts","description":"API client (discovery + shortlist; no apply)","pseudoCode":"export const apiClient = {\n  getProfiles: () => fetch('/api/profiles').then(r => r.json()),\n  login: (profileId: string, platform: string) =>\n    fetch(`/api/profiles/${profileId}/login`, { method: 'POST', body: JSON.stringify({ platform }) }).then(r => r.json()),\n  startDiscovery: (profileId: string, platforms: string[], sinceHours = 24) =>\n    fetch('/api/discovery/run', { method: 'POST', body: JSON.stringify({ profileId, platforms, sinceHours }) }).then(r => r.json()),\n  getDiscoveryStatus: (runId: string) => fetch(`/api/discovery/${runId}/status`).then(r => r.json()),\n  getShortlist: (profileId: string, status?: string, includeGhost = false, minScore = 0) =>\n    fetch(`/api/shortlist?${new URLSearchParams({ profileId, status: status ?? '', includeGhost: String(includeGhost), minScore: String(minScore) })}`).then(r => r.json()),\n  updateShortlistStatus: (id: string, status: string) =>\n    fetch(`/api/shortlist/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }).then(r => r.json()),\n}"},{"id":"f-27","order":27,"action":"create","path":"frontend/src/app/dashboard/page.tsx","description":"Cockpit: profile + login state, \"Gather last 24h\" button, shortlist table, filters","pseudoCode":"export default function Dashboard() {\n  const [profile, setProfile] = useState<string | null>(null);\n  const [runId, setRunId] = useState<string | null>(null);\n  const profiles = useQuery({ queryKey: ['profiles'], queryFn: apiClient.getProfiles });\n  const runStatus = useQuery({ queryKey: ['run', runId], queryFn: () => apiClient.getDiscoveryStatus(runId!),\n    enabled: !!runId, refetchInterval: 2000 });\n  const shortlist = useQuery({ queryKey: ['shortlist', profile, runStatus.data?.phase],\n    queryFn: () => apiClient.getShortlist(profile!), enabled: !!profile });\n\n  const gather = async () => {\n    const { runId } = await apiClient.startDiscovery(profile!, ['linkedin', 'glassdoor'], 24);\n    setRunId(runId);\n  };\n\n  return (\n    <div>\n      <ProfileSelector profiles={profiles.data} onSelect={setProfile} />\n      <button onClick={gather} disabled={!profile}>Gather open positions (last 24h)</button>\n      {runId && <DiscoveryProgressBar status={runStatus.data} />}\n      <ShortlistFilters />\n      <ShortlistTable items={shortlist.data?.items} />\n    </div>\n  );\n}"},{"id":"f-28","order":28,"action":"create","path":"frontend/src/components/ShortlistTable.tsx","description":"Curated shortlist table: company score, ghost flag, apply link (opens externally), status toggle. No apply button.","pseudoCode":"export function ShortlistTable({ items, onStatus }) {\n  return (\n    <table>\n      <thead><tr>\n        <th>Company</th><th>Title</th><th>Location</th><th>Posted</th><th>Score</th><th>Apply link</th><th>Status</th>\n      </tr></thead>\n      <tbody>\n        {items?.map(it => (\n          <tr key={it.id} className={it.isGhost ? 'ghost' : ''}>\n            <td>{it.company}{it.isGhost && <span className=\"badge\">possible ghost</span>}</td>\n            <td>{it.title}</td>\n            <td>{it.location}</td>\n            <td>{timeAgo(it.postedAt)}</td>\n            <td><ScorePill value={it.score} /></td>\n            <td><a href={it.applyUrl} target=\"_blank\" rel=\"noopener\">Open & apply →</a></td>\n            <td>\n              <select value={it.status} onChange={e => onStatus(it.id, e.target.value)}>\n                <option value=\"new\">New</option>\n                <option value=\"saved\">Saved</option>\n                <option value=\"dismissed\">Dismissed</option>\n                <option value=\"applied\">Applied</option>\n              </select>\n            </td>\n          </tr>\n        ))}\n      </tbody>\n    </table>\n  );\n}"},{"id":"f-29","order":29,"action":"create","path":"frontend/src/components/ProfileSelector.tsx","description":"Profile dropdown: select + trigger login, show session status (active / invalid / needs 2FA)","pseudoCode":"export function ProfileSelector({ profiles, onSelect }) {\n  const [status, setStatus] = useState<string | null>(null);\n  const handleSelect = async (id: string) => {\n    const res = await apiClient.login(id, 'linkedin');\n    setStatus(res.status); // active | invalid_creds | needs_2fa\n    if (res.status === 'active') onSelect(id);\n  };\n  return (\n    <div>\n      <select onChange={e => handleSelect(e.target.value)}>\n        <option>Select profile</option>\n        {profiles?.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}\n      </select>\n      {status === 'needs_2fa' && <span>Complete 2FA/checkpoint, then retry</span>}\n      {status === 'invalid_creds' && <span>Invalid credentials — check env</span>}\n    </div>\n  );\n}"},{"id":"f-30","order":30,"action":"create","path":"frontend/src/components/DiscoveryProgressBar.tsx","description":"Progress bar for a discovery run: phase + found/verified/shortlisted/ghost counts","pseudoCode":"export function DiscoveryProgressBar({ status }) {\n  if (!status) return null;\n  return (\n    <div>\n      <div>Phase: {status.phase}</div>\n      <div>Found {status.found} · Verified {status.verified} · Shortlisted {status.shortlisted} · Ghost {status.ghost}</div>\n      {status.phase === 'error' && <div className=\"error\">{status.error}</div>}\n    </div>\n  );\n}"},{"id":"f-31","order":31,"action":"create","path":"frontend/next.config.js","description":"Next.js config with API proxy to Go backend","pseudoCode":"/** @type {import('next').NextConfig} */\nconst nextConfig = {\n  rewrites: async () => ({ fallback: [{ source: '/api/:path*', destination: 'http://localhost:8080/api/:path*' }] })\n};\nmodule.exports = nextConfig;"},{"id":"f-32","order":32,"action":"create","path":"data_profile1.json","description":"Example profile SEARCH PREFERENCES (no apply answers needed — the app does not apply)","pseudoCode":"{\n  \"name\": \"John Doe\",\n  \"search\": {\n    \"keywords\": [\"Backend Engineer\", \"Go Developer\"],\n    \"locations\": [\"Remote\", \"New York, NY\"],\n    \"remoteOnly\": false,\n    \"experienceLevels\": [\"mid\", \"senior\"],\n    \"excludeCompanies\": [\"SketchyStaffing Inc\"],\n    \"minCompanyScore\": 50\n  }\n}"}],"logicSteps":[{"id":"l-1","step":"Initialize profiles from env + JSON preferences","pseudo":"1. Parse env: PROFILE_1_LINKEDIN_EMAIL/PASSWORD, PROFILE_1_GLASSDOOR_*, etc.\n2. For each profile N, load data_profileN.json for SEARCH preferences (keywords, locations, filters)\n3. Sync profiles to PostgreSQL (insert or update)\n4. Return list of Profile structs"},{"id":"l-2","step":"Log in with stored credentials (Selenium-style session)","pseudo":"1. Look up persisted cookies for (profile, platform); if valid -> reuse session, done\n2. Else chromedp: open login page, type email + password, submit\n3. Classify result:\n   - success              -> serialize + persist cookies (status='active')\n   - wrong creds          -> status='invalid_creds', surface to user\n   - 2FA/checkpoint/CAPTCHA -> status='needs_2fa', surface (optionally run headful to finish)\n4. Each profile uses its own cookie jar (no cross-profile leakage)"},{"id":"l-3","step":"Scrape jobs posted in the last 24 hours","pseudo":"1. Ensure an authenticated session for the platform\n2. Build search URL with the \"past 24h\" filter (LinkedIn f_TPR=r86400, Glassdoor fromAge=1) + prefs\n3. Paginate every result page in the logged-in context\n4. Extract title, company, applyURL, postedAt, location, salary\n5. Discard anything with postedAt older than 24h (double-check the filter)\n6. Upsert jobs, dedupe by externalJobId; return them"},{"id":"l-4","step":"Verify each company is not a ghost job","pseudo":"1. For each unique company, check the verification cache (TTL)\n2. If missing, run checks in parallel: LinkedIn presence, Glassdoor reviews/rating, posting age/reposts\n3. Score = weighted combination; isGhostJob = score < 40\n4. Store with TTL; return verification"},{"id":"l-5","step":"Build the curated shortlist (no applying)","pseudo":"1. Merge/dedupe jobs across LinkedIn + Glassdoor (same company+title)\n2. Attach each job's company verification (score, is_ghost)\n3. Upsert a ShortlistEntry per (profile, job) with score, is_ghost, applyURL, status='new'\n4. Ghost jobs are flagged, NOT dropped (user decides via a filter)\n5. NEVER submit an application — the app only produces the list"},{"id":"l-6","step":"Cockpit \"Gather last 24h\" run","pseudo":"1. POST /api/discovery/run {profileId, platforms, sinceHours:24} -> runId\n2. Background goroutine: login/reuse -> scrape -> verify -> upsert shortlist\n3. Emit progress {phase, found, verified, shortlisted, ghost}\n4. Frontend polls /api/discovery/:runId/status every 2s until phase='done'"},{"id":"l-7","step":"Query the shortlist for the cockpit","pseudo":"1. Accept filters: profileId, status, includeGhost, minScore, pagination\n2. Join shortlist + jobs; sort by score DESC, postedAt DESC\n3. Return items with applyUrl so the user can open and apply manually\n4. PATCH /api/shortlist/:id updates the user-managed status"}],"contracts":[{"id":"c-1","name":"GET /api/profiles","inputs":"none","outputs":"{\"profiles\": [{\"id\": \"profile-1\", \"name\": \"John\", \"linkedinEmail\": \"...\", \"glassdoorEmail\": \"...\"}]}"},{"id":"c-2","name":"POST /api/profiles/:id/login","inputs":"{\"platform\": \"linkedin\"}","outputs":"{\"ok\": true, \"status\": \"active\"} | {\"ok\": false, \"status\": \"invalid_creds\"} | {\"ok\": false, \"status\": \"needs_2fa\"}"},{"id":"c-3","name":"GET /api/profiles/:id/preferences","inputs":"none","outputs":"{\"profileId\": \"profile-1\", \"search\": {\"keywords\": [\"Go Developer\"], \"locations\": [\"Remote\"], \"minCompanyScore\": 50}}"},{"id":"c-4","name":"POST /api/discovery/run","inputs":"{\"profileId\": \"profile-1\", \"platforms\": [\"linkedin\", \"glassdoor\"], \"sinceHours\": 24}","outputs":"{\"runId\": \"run-uuid\"}"},{"id":"c-5","name":"GET /api/discovery/:runId/status","inputs":"none","outputs":"{\"runId\": \"run-uuid\", \"phase\": \"verifying\", \"found\": 42, \"verified\": 30, \"shortlisted\": 25, \"ghost\": 5}"},{"id":"c-6","name":"GET /api/shortlist","inputs":"?profileId=profile-1&status=new&includeGhost=false&minScore=50&page=1&limit=50","outputs":"{\"items\": [{\"id\": \"sl-1\", \"title\": \"Go Developer\", \"company\": \"Acme\", \"location\": \"Remote\", \"applyUrl\": \"https://linkedin.com/jobs/view/123\", \"score\": 78, \"isGhost\": false, \"postedAt\": \"2026-07-18T09:00:00Z\", \"status\": \"new\"}], \"total\": 25}"},{"id":"c-7","name":"PATCH /api/shortlist/:id","inputs":"{\"status\": \"applied\"}","outputs":"{\"id\": \"sl-1\", \"status\": \"applied\"}"},{"id":"c-8","name":"GET /api/shortlist/stats/:profileId","inputs":"none","outputs":"{\"new\": 20, \"saved\": 3, \"dismissed\": 2, \"applied\": 5, \"ghost\": 5}"}],"edgeCases":[{"id":"e-1","condition":"Invalid credentials (wrong email/password)","handling":"chromedp login detects the error banner. Persist session status=\"invalid_creds\", surface to user. No scraping runs for that profile until fixed in env."},{"id":"e-2","condition":"2FA / security checkpoint / CAPTCHA on login","handling":"Detect the challenge page. Persist status=\"needs_2fa\" and surface to user. With HEADLESS=false, open headful so the user completes it, then persist the resulting cookies. Never attempt to bypass."},{"id":"e-3","condition":"Session cookies expired mid-run","handling":"A logged-in page redirects to login. Re-run EnsureSession once (fresh login); if it fails, mark the run phase=\"error\" with reason and keep any jobs already gathered."},{"id":"e-4","condition":"Rate limit / bot detection during scraping","handling":"Back off with jitter, save partial results, and mark the run partial. Do not hammer; optionally pause the profile for a cooldown window."},{"id":"e-5","condition":"Zero jobs posted in the last 24h","handling":"Return an empty shortlist, not an error. Cockpit shows \"No new jobs in the last 24h\". User can widen keywords/locations or extend sinceHours."},{"id":"e-6","condition":"Job already seen in a previous run","handling":"Dedupe by externalJobId at upsert; the shortlist entry is refreshed (score/is_ghost) rather than duplicated. First_seen_at is preserved."},{"id":"e-7","condition":"Same job appears on both LinkedIn and Glassdoor","handling":"Merge by normalized company+title; keep one entry, preferring the platform with a working apply link. Record both source URLs in raw_data."},{"id":"e-8","condition":"Company flagged as a ghost job","handling":"Do NOT drop it. Tag is_ghost=true and hide behind the \"include ghost\" filter (or below the minScore threshold) so the user still decides."},{"id":"e-9","condition":"Company verification service errors or times out","handling":"Mark that job's verification as score=0/unknown with a warning flag; still include it in the shortlist labeled \"unverified\" instead of failing the whole run."},{"id":"e-10","condition":"Apply link missing or malformed on a listing","handling":"Fall back to the canonical LinkedIn/Glassdoor job-view URL as applyUrl so the user always has a working link."},{"id":"e-11","condition":"Posting older than 24h slips through the platform filter","handling":"Parse postedAt and discard anything outside the sinceHours window before shortlisting (the date filter is treated as approximate)."},{"id":"e-12","condition":"data_profileN.json is malformed or missing","handling":"Log a warning, fall back to default search prefs (broad keywords, no exclusions), and flag the profile in the cockpit so the user fixes it."},{"id":"e-13","condition":"Long run across many result pages","handling":"Run in a background goroutine; the cockpit polls status and can navigate away. Partial results are visible as they are shortlisted."},{"id":"e-14","condition":"User expects the app to apply","handling":"By design there is NO apply endpoint or ApplyService. The app only gathers and verifies; every shortlist row exposes an apply link the user opens themselves. Status \"applied\" is a manual bookkeeping toggle only."},{"id":"e-15","condition":"Multiple profiles run discovery at the same time","handling":"Each profile uses its own chromedp context + cookie jar; sessions and scraped results never leak between profiles. Runs are tracked independently by runId."}],"testScenarios":[{"id":"t-1","target":"ProfileService::LoadProfiles()","scenario":"Reads PROFILE_1_LINKEDIN_EMAIL from env, loads data_profile1.json search prefs, returns []Profile with id=\"profile-1\" and parsed keywords/locations."},{"id":"t-2","target":"AuthSessionService::EnsureSession() [reuse]","scenario":"Given valid persisted cookies, injects them, confirms a logged-in page loads, and returns without performing a fresh login."},{"id":"t-3","target":"AuthSessionService::EnsureSession() [invalid creds]","scenario":"Given wrong password, detects the error banner, persists status=\"invalid_creds\", and returns ErrInvalidCreds."},{"id":"t-4","target":"AuthSessionService::EnsureSession() [2FA]","scenario":"Given a checkpoint/2FA page, persists status=\"needs_2fa\" and returns ErrNeeds2FA; no scraping proceeds."},{"id":"t-5","target":"JobScraperService::ScrapeRecent()","scenario":"Given keywords=[\"Go Developer\"], sinceHours=24, uses the authenticated session, applies the past-24h filter, paginates, and returns only jobs with postedAt within 24h."},{"id":"t-6","target":"JobScraperService::ScrapeRecent() [dedupe]","scenario":"A job already in DB (same externalJobId) is upserted, not duplicated; first_seen_at is preserved."},{"id":"t-7","target":"CompanyVerificationService::Verify()","scenario":"Given company=\"Acme\", returns score>=70, isGhostJob=false; a second call within TTL returns the cached result."},{"id":"t-8","target":"CompanyVerificationService::Verify() [ghost]","scenario":"Given company=\"FakeSpamCorp\", returns score<40, isGhostJob=true."},{"id":"t-9","target":"DiscoveryService::Discover()","scenario":"Scrapes recent jobs, verifies companies, upserts shortlist entries with score+is_ghost+applyUrl, and returns the shortlisted count WITHOUT calling any apply code path."},{"id":"t-10","target":"DiscoveryService::Discover() [ghost kept]","scenario":"A ghost company's job is still written to the shortlist with is_ghost=true (not dropped) so it appears under the include-ghost filter."},{"id":"t-11","target":"ShortlistRepository::List()","scenario":"Given profileId, status=\"new\", minScore=50, includeGhost=false, returns non-ghost entries with score>=50 sorted by score DESC then postedAt DESC."},{"id":"t-12","target":"ShortlistHandler::UpdateStatus()","scenario":"PATCH /api/shortlist/sl-1 {status:\"applied\"} flips the user-managed status to \"applied\" and returns the updated entry."},{"id":"t-13","target":"DiscoveryRunService::GetStatus()","scenario":"While a run is active, returns {phase:\"scraping\", found, verified, shortlisted, ghost}; on completion phase=\"done\"."}]};
+    </script>
+    <script>
+        // ------------------------------------------------------------------
+        // Data Layer
+        // ------------------------------------------------------------------
+        const STORAGE_KEY = 'feature-impl-plan:' + document.title;
+
+        // One-time migration from the previous single-key localStorage layout
+        // used by the original pasted template ('feature-impl-plan-data'). If
+        // the per-document key is empty but the old global key has data, copy
+        // it across and clear it so the user's edits survive the upgrade.
+        function migrateLegacyStorage() {
+            try {
+                if (localStorage.getItem(STORAGE_KEY)) return;
+                const legacy = localStorage.getItem('feature-impl-plan-data');
+                if (!legacy) return;
+                localStorage.setItem(STORAGE_KEY, legacy);
+                localStorage.removeItem('feature-impl-plan-data');
+            } catch (e) { /* ignore */ }
+        }
+        migrateLegacyStorage();
+
+        let data = loadData();
+
+        function emptyData() {
+            return {
+                title: '',
+                module: '',
+                goal: '',
+                context: '',
+                patternCore: 'Layered (Controller -> Service -> Repository)',
+                patternBusiness: 'Transaction Script',
+                patternSpecific: '',
+                patternOverrides: '',
+                solutionApproach: [],
+                files: [],
+                logicSteps: [],
+                contracts: [],
+                edgeCases: [],
+                testScenarios: []
+            };
+        }
+
+        function loadData() {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    return normalize(parsed);
+                }
+            } catch (e) { /* ignore */ }
+            return normalize(INITIAL_DATA || emptyData());
+        }
+
+        // Fills in any missing top-level keys so a sparse persisted or seeded
+        // payload still renders a valid page.
+        function normalize(parsed) {
+            const base = emptyData();
+            if (!parsed || typeof parsed !== 'object') parsed = {};
+            for (let key in base) {
+                if (parsed[key] === undefined) parsed[key] = base[key];
+            }
+            return parsed;
+        }
+
+        function saveData() {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+            } catch (e) { /* ignore */ }
+        }
+
+        function generateId() {
+            return Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+        }
+
+        // ------------------------------------------------------------------
+        // Rendering Helpers
+        // ------------------------------------------------------------------
+        function renderAll() {
+            renderApproach();
+            renderFiles();
+            renderLogic();
+            renderContracts();
+            renderEdges();
+            renderTests();
+
+            document.getElementById('feature-title').value = data.title || '';
+            document.getElementById('feature-module').value = data.module || '';
+            document.getElementById('feature-goal').value = data.goal || '';
+            document.getElementById('feature-context').value = data.context || '';
+            document.getElementById('pattern-core').value = data.patternCore || '';
+            document.getElementById('pattern-business').value = data.patternBusiness || '';
+            document.getElementById('pattern-specific').value = data.patternSpecific || '';
+            document.getElementById('pattern-overrides').value = data.patternOverrides || '';
+        }
+
+        // Generic render for simple item lists (logic, contracts, edges, tests)
+        function renderSimpleList(containerId, items, fields, labelSingular, btnId) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            items.forEach((item, index) => {
+                const block = document.createElement('div');
+                block.className = 'item-block';
+
+                const header = document.createElement('div');
+                header.className = 'item-header';
+                const titleSpan = document.createElement('span');
+                titleSpan.className = 'item-title';
+                titleSpan.textContent = `${labelSingular} #${index+1}`;
+                header.appendChild(titleSpan);
+
+                const removeBtn = document.createElement('button');
+                removeBtn.className = 'btn btn-danger btn-sm';
+                removeBtn.textContent = '✕ Remove';
+                removeBtn.addEventListener('click', () => {
+                    items.splice(index, 1);
+                    saveData();
+                    renderAll();
+                });
+                header.appendChild(removeBtn);
+                block.appendChild(header);
+
+                const fieldDiv = document.createElement('div');
+                fieldDiv.className = 'item-fields';
+
+                fields.forEach(f => {
+                    const wrapper = document.createElement('div');
+                    if (f.fullWidth) wrapper.className = 'full-width';
+
+                    const label = document.createElement('label');
+                    label.textContent = f.label;
+                    wrapper.appendChild(label);
+
+                    let input;
+                    if (f.type === 'textarea') {
+                        input = document.createElement('textarea');
+                        input.rows = f.rows || 3;
+                        input.placeholder = f.placeholder || '';
+                        input.value = item[f.key] || '';
+                        input.addEventListener('input', () => {
+                            item[f.key] = input.value;
+                            saveData();
+                        });
+                    } else if (f.type === 'select') {
+                        input = document.createElement('select');
+                        f.options.forEach(opt => {
+                            const option = document.createElement('option');
+                            option.value = opt.value;
+                            option.textContent = opt.label;
+                            if (item[f.key] === opt.value) option.selected = true;
+                            input.appendChild(option);
+                        });
+                        input.addEventListener('change', () => {
+                            item[f.key] = input.value;
+                            saveData();
+                        });
+                    } else {
+                        input = document.createElement('input');
+                        input.type = f.type || 'text';
+                        input.placeholder = f.placeholder || '';
+                        input.value = item[f.key] || '';
+                        input.addEventListener('input', () => {
+                            item[f.key] = input.value;
+                            saveData();
+                        });
+                    }
+                    wrapper.appendChild(input);
+                    fieldDiv.appendChild(wrapper);
+                });
+
+                block.appendChild(fieldDiv);
+                container.appendChild(block);
+            });
+        }
+
+        // ------------------------------------------------------------------
+        // Render Files (with sorting by order)
+        // ------------------------------------------------------------------
+        function renderFiles() {
+            const container = document.getElementById('files-container');
+            container.innerHTML = '';
+            // Sort by order
+            const sorted = [...data.files].sort((a, b) => (a.order || 999) - (b.order || 999));
+
+            sorted.forEach((item, idx) => {
+                // find original index for removal
+                const origIndex = data.files.indexOf(item);
+                const block = document.createElement('div');
+                block.className = 'item-block';
+
+                const header = document.createElement('div');
+                header.className = 'item-header';
+
+                const titleSpan = document.createElement('span');
+                titleSpan.className = 'item-title';
+                const badge = document.createElement('span');
+                const action = item.action || 'update';
+                badge.className = `badge badge-${action}`;
+                badge.textContent = action.toUpperCase();
+                titleSpan.appendChild(badge);
+                titleSpan.appendChild(document.createTextNode(` ${item.path || 'Untitled file'}`));
+                header.appendChild(titleSpan);
+
+                const removeBtn = document.createElement('button');
+                removeBtn.className = 'btn btn-danger btn-sm';
+                removeBtn.textContent = '✕ Remove';
+                removeBtn.addEventListener('click', () => {
+                    data.files.splice(origIndex, 1);
+                    saveData();
+                    renderAll();
+                });
+                header.appendChild(removeBtn);
+                block.appendChild(header);
+
+                const fieldDiv = document.createElement('div');
+                fieldDiv.className = 'item-fields';
+
+                // Order
+                const orderWrap = document.createElement('div');
+                const orderLabel = document.createElement('label');
+                orderLabel.textContent = 'Order';
+                orderWrap.appendChild(orderLabel);
+                const orderInput = document.createElement('input');
+                orderInput.type = 'number';
+                orderInput.min = 1;
+                orderInput.value = item.order || idx + 1;
+                orderInput.addEventListener('input', () => {
+                    item.order = parseInt(orderInput.value) || 999;
+                    saveData();
+                    renderFiles(); // re-sort
+                });
+                orderWrap.appendChild(orderInput);
+                fieldDiv.appendChild(orderWrap);
+
+                // Action
+                const actionWrap = document.createElement('div');
+                const actionLabel = document.createElement('label');
+                actionLabel.textContent = 'Action';
+                actionWrap.appendChild(actionLabel);
+                const actionSelect = document.createElement('select');
+                ['create', 'update', 'delete'].forEach(a => {
+                    const opt = document.createElement('option');
+                    opt.value = a;
+                    opt.textContent = a.charAt(0).toUpperCase() + a.slice(1);
+                    if (item.action === a) opt.selected = true;
+                    actionSelect.appendChild(opt);
+                });
+                actionSelect.addEventListener('change', () => {
+                    item.action = actionSelect.value;
+                    saveData();
+                    renderFiles();
+                });
+                actionWrap.appendChild(actionSelect);
+                fieldDiv.appendChild(actionWrap);
+
+                // Path
+                const pathWrap = document.createElement('div');
+                const pathLabel = document.createElement('label');
+                pathLabel.textContent = 'File Path';
+                pathWrap.appendChild(pathLabel);
+                const pathInput = document.createElement('input');
+                pathInput.type = 'text';
+                pathInput.placeholder = 'src/Service/NewService.php';
+                pathInput.value = item.path || '';
+                pathInput.addEventListener('input', () => {
+                    item.path = pathInput.value;
+                    saveData();
+                    renderFiles();
+                });
+                pathWrap.appendChild(pathInput);
+                fieldDiv.appendChild(pathWrap);
+
+                // Description
+                const descWrap = document.createElement('div');
+                descWrap.className = 'full-width';
+                const descLabel = document.createElement('label');
+                descLabel.textContent = 'Purpose / Description';
+                descWrap.appendChild(descLabel);
+                const descInput = document.createElement('textarea');
+                descInput.rows = 1;
+                descInput.placeholder = 'What does this file do?';
+                descInput.value = item.description || '';
+                descInput.addEventListener('input', () => {
+                    item.description = descInput.value;
+                    saveData();
+                });
+                descWrap.appendChild(descInput);
+                fieldDiv.appendChild(descWrap);
+
+                // Pseudo-code
+                const codeWrap = document.createElement('div');
+                codeWrap.className = 'full-width';
+                const codeLabel = document.createElement('label');
+                codeLabel.textContent = 'Pseudo-code / Expected Signature (write code stubs here)';
+                codeWrap.appendChild(codeLabel);
+                const codeInput = document.createElement('textarea');
+                codeInput.rows = 4;
+                codeInput.placeholder = "e.g.\nclass NewService {\n  public function execute($input) {\n    // 1. Validate input\n    // 2. Call repository\n  }\n}";
+                codeInput.value = item.pseudoCode || '';
+                codeInput.addEventListener('input', () => {
+                    item.pseudoCode = codeInput.value;
+                    saveData();
+                });
+                codeWrap.appendChild(codeInput);
+                fieldDiv.appendChild(codeWrap);
+
+                block.appendChild(fieldDiv);
+                container.appendChild(block);
+            });
+        }
+
+        // ------------------------------------------------------------------
+        // Render specific sections
+        // ------------------------------------------------------------------
+        function renderApproach() {
+            const fields = [
+                { key: 'aspect', label: 'Decision Area (e.g. Architecture, Integration, Performance)', type: 'text', placeholder: 'e.g. Database Strategy' },
+                { key: 'rationale', label: 'Reasoning & Trade-offs', type: 'textarea', rows: 3, fullWidth: true }
+            ];
+            renderSimpleList('approach-container', data.solutionApproach, fields, 'Decision', 'add-approach-btn');
+        }
+
+        function renderLogic() {
+            const fields = [
+                { key: 'step', label: 'Step Title', type: 'text', placeholder: 'e.g. Validate user input' },
+                { key: 'pseudo', label: 'Detailed Pseudo-code / Logic', type: 'textarea', rows: 4, fullWidth: true }
+            ];
+            renderSimpleList('logic-container', data.logicSteps, fields, 'Logic Step', 'add-logic-btn');
+        }
+
+        function renderContracts() {
+            const fields = [
+                { key: 'name', label: 'Function / Endpoint Name', type: 'text', placeholder: 'POST /api/v2/verify-2fa' },
+                { key: 'inputs', label: 'Inputs / Parameters', type: 'textarea', rows: 2, fullWidth: true },
+                { key: 'outputs', label: 'Outputs / Returns', type: 'textarea', rows: 2, fullWidth: true }
+            ];
+            renderSimpleList('contracts-container', data.contracts, fields, 'Contract', 'add-contract-btn');
+        }
+
+        function renderEdges() {
+            const fields = [
+                { key: 'condition', label: 'Condition / Scenario', type: 'text', placeholder: 'e.g. User enters wrong OTP' },
+                { key: 'handling', label: 'Expected Handling', type: 'textarea', rows: 2, fullWidth: true }
+            ];
+            renderSimpleList('edges-container', data.edgeCases, fields, 'Edge Case', 'add-edge-btn');
+        }
+
+        function renderTests() {
+            const fields = [
+                { key: 'target', label: 'Target File / Method', type: 'text', placeholder: 'NewService::execute()' },
+                { key: 'scenario', label: 'Test Scenario', type: 'textarea', rows: 2, fullWidth: true }
+            ];
+            renderSimpleList('tests-container', data.testScenarios, fields, 'Test', 'add-test-btn');
+        }
+
+        // ------------------------------------------------------------------
+        // Event Bindings for Add Buttons
+        //
+        // NOTE: The inline default items below MUST stay in sync with the
+        // ITEM_FIELD_DEFAULTS table in agents/skills/featurePlan/featurePlan-inject.js
+        // — both describe the same per-section field schema, and adding or
+        // renaming a field requires changes in both places.
+        // ------------------------------------------------------------------
+        function bindAdd(btnId, arrayKey, defaultItem) {
+            document.getElementById(btnId).addEventListener('click', () => {
+                data[arrayKey].push({ ...defaultItem, id: generateId() });
+                saveData();
+                renderAll();
+            });
+        }
+
+        bindAdd('add-approach-btn', 'solutionApproach', { aspect: '', rationale: '' });
+        bindAdd('add-file-btn', 'files', { order: data.files.length + 1, action: 'create', path: '', description: '',
+            pseudoCode: '' });
+        bindAdd('add-logic-btn', 'logicSteps', { step: '', pseudo: '' });
+        bindAdd('add-contract-btn', 'contracts', { name: '', inputs: '', outputs: '' });
+        bindAdd('add-edge-btn', 'edgeCases', { condition: '', handling: '' });
+        bindAdd('add-test-btn', 'testScenarios', { target: '', scenario: '' });
+
+        // Input bindings for top-level fields
+        document.getElementById('feature-title').addEventListener('input', (e) => { data.title = e.target.value;
+            saveData(); });
+        document.getElementById('feature-module').addEventListener('input', (e) => { data.module = e.target.value;
+            saveData(); });
+        document.getElementById('feature-goal').addEventListener('input', (e) => { data.goal = e.target.value;
+            saveData(); });
+        document.getElementById('feature-context').addEventListener('input', (e) => { data.context = e.target.value;
+            saveData(); });
+        document.getElementById('pattern-core').addEventListener('input', (e) => { data.patternCore = e.target.value;
+            saveData(); });
+        document.getElementById('pattern-business').addEventListener('input', (e) => { data.patternBusiness = e.target.value;
+            saveData(); });
+        document.getElementById('pattern-specific').addEventListener('input', (e) => { data.patternSpecific = e.target.value;
+            saveData(); });
+        document.getElementById('pattern-overrides').addEventListener('input', (e) => { data.patternOverrides = e.target.value;
+            saveData(); });
+
+        // ------------------------------------------------------------------
+        // Export
+        // ------------------------------------------------------------------
+        function buildExportText() {
+            const lines = [];
+            lines.push('FEATURE IMPLEMENTATION PLAN (AI-READY PROMPT)');
+            lines.push('==============================================');
+            lines.push('');
+            lines.push(`FEATURE TITLE: ${data.title || 'Not set'}`);
+            lines.push(`TARGET MODULE: ${data.module || 'Not set'}`);
+            lines.push(`USER STORY: ${data.goal || 'Not set'}`);
+            lines.push(`EXISTING CONTEXT: ${data.context || 'Not set'}`);
+            lines.push('');
+
+            lines.push('--- DESIGN PATTERNS & OVERRIDES ---');
+            lines.push(`Core Pattern: ${data.patternCore || 'Not set'}`);
+            lines.push(`Business Logic Pattern: ${data.patternBusiness || 'Not set'}`);
+            lines.push(`Specific Implementations: ${data.patternSpecific || 'None'}`);
+            lines.push(`Explicit Overrides: ${data.patternOverrides || 'None'}`);
+            lines.push('');
+
+            // Solution Approach
+            lines.push('--- SOLUTION APPROACH & RATIONALE ---');
+            if (data.solutionApproach.length === 0) {
+                lines.push('(No approach decisions documented)');
+            } else {
+                data.solutionApproach.forEach((s, idx) => {
+                    lines.push(`Decision ${idx+1}: ${s.aspect || 'Untitled'}`);
+                    if (s.rationale) {
+                        s.rationale.split('\n').forEach(line => {
+                            lines.push(`  ${line}`);
+                        });
+                    }
+                    lines.push('');
+                });
+            }
+
+            // Files
+            lines.push('--- FILE CHANGE MANIFEST (IN ORDER) ---');
+            const sortedFiles = [...data.files].sort((a, b) => (a.order || 999) - (b.order || 999));
+            if (sortedFiles.length === 0) {
+                lines.push('(No files defined)');
+            } else {
+                sortedFiles.forEach((f, idx) => {
+                    lines.push(`[${idx+1}] ${f.action.toUpperCase()} | ${f.path || 'Untitled'}`);
+                    if (f.description) lines.push(`    Description: ${f.description}`);
+                    if (f.pseudoCode) {
+                        lines.push(`    Pseudo-code:`);
+                        f.pseudoCode.split('\n').forEach(line => {
+                            lines.push(`      ${line}`);
+                        });
+                    }
+                    lines.push('');
+                });
+            }
+
+            // Logic
+            lines.push('--- CORE BUSINESS LOGIC (PSEUDO-CODE) ---');
+            if (data.logicSteps.length === 0) {
+                lines.push('(No logic steps defined)');
+            } else {
+                data.logicSteps.forEach((l, idx) => {
+                    lines.push(`Step ${idx+1}: ${l.step || 'Untitled'}`);
+                    if (l.pseudo) {
+                        l.pseudo.split('\n').forEach(line => {
+                            lines.push(`  ${line}`);
+                        });
+                    }
+                    lines.push('');
+                });
+            }
+
+            // Contracts
+            lines.push('--- FUNCTION / API CONTRACTS ---');
+            if (data.contracts.length === 0) {
+                lines.push('(No contracts defined)');
+            } else {
+                data.contracts.forEach(c => {
+                    lines.push(`Signature: ${c.name || 'Unnamed'}`);
+                    if (c.inputs) lines.push(`  Inputs: ${c.inputs}`);
+                    if (c.outputs) lines.push(`  Outputs: ${c.outputs}`);
+                    lines.push('');
+                });
+            }
+
+            // Edge Cases
+            lines.push('--- EDGE CASES & ERROR HANDLING ---');
+            if (data.edgeCases.length === 0) {
+                lines.push('(No edge cases defined)');
+            } else {
+                data.edgeCases.forEach(e => {
+                    lines.push(`Condition: ${e.condition || 'Untitled'}`);
+                    if (e.handling) lines.push(`  Handling: ${e.handling}`);
+                    lines.push('');
+                });
+            }
+
+            // Tests
+            lines.push('--- TESTING STRATEGY ---');
+            if (data.testScenarios.length === 0) {
+                lines.push('(No tests defined)');
+            } else {
+                data.testScenarios.forEach(t => {
+                    lines.push(`Target: ${t.target || 'Untitled'}`);
+                    if (t.scenario) lines.push(`  Scenario: ${t.scenario}`);
+                    lines.push('');
+                });
+            }
+
+            lines.push('--- END OF PLAN ---');
+            lines.push('Generate the actual code based strictly on the above plan.');
+            return lines.join('\n');
+        }
+
+        document.getElementById('copy-btn').addEventListener('click', () => {
+            const text = buildExportText();
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = document.getElementById('copy-btn');
+                btn.textContent = '✓ Copied!';
+                btn.classList.add('copied');
+                setTimeout(() => {
+                    btn.textContent = '📋 Copy AI-Ready Plan';
+                    btn.classList.remove('copied');
+                }, 2500);
+            }).catch(() => {
+                alert('Could not copy. Please select and copy manually.');
+            });
+        });
+
+        document.getElementById('reset-btn').addEventListener('click', () => {
+            if (confirm('Reset all data? This cannot be undone.')) {
+                data = emptyData();
+                saveData();
+                renderAll();
+            }
+        });
+
+        // ------------------------------------------------------------------
+        // Initial Render
+        // ------------------------------------------------------------------
+        renderAll();
+    </script>
+
+</body>
+</html>

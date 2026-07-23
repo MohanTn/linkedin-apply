@@ -1,0 +1,64 @@
+# Full stack: Postgres + Go backend (with headless Chromium) + Next.js cockpit.
+#
+#   1. Put your login credentials in backend/.env
+#        cp backend/.env.example backend/.env   # then edit PROFILE_1_* etc.
+#   2. docker compose up --build
+#
+# Then open http://localhost:3000 (API is proxied to the backend service).
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: linkedin_apply
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d linkedin_apply"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/linkedin_apply?sslmode=disable
+      DATA_DIR: /data
+      DEBUG_DIR: /debug
+      PORT: "8080"
+      HEADLESS: "true"
+    env_file:
+      # Login credentials (PROFILE_*_LINKEDIN_EMAIL/PASSWORD, ...). Optional so
+      # the stack still boots before you create the file.
+      - path: ./backend/.env
+        required: false
+    volumes:
+      # data_profileN.json live at the repo root; mount read-only for DATA_DIR.
+      - ./:/data:ro
+      # Login-failure screenshots + HTML land here on the host for debugging.
+      - ./debug:/debug
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    # Headless Chromium under load needs more shared memory than the 64MB default.
+    shm_size: "1gb"
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      BACKEND_URL: http://backend:8080
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
