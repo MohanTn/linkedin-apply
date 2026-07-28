@@ -12,6 +12,18 @@ CREATE TABLE IF NOT EXISTS profiles (
 -- User-edited search preferences override the data_profileN.json seed (which is
 -- mounted read-only), so keywords can be changed from the UI and reused on rerun.
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS search_prefs JSONB;
+-- Where the profile first came from: 'env' (seeded once from PROFILE_<N>_*) or
+-- 'db' (created in the cockpit). Provenance only — both are fully editable.
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'env';
+-- Deleting is a soft delete: the row is kept so it can act as a tombstone (an
+-- env-seeded profile must not reappear on the next load) and so historical
+-- foreign keys stay valid. Dependent rows are removed for real.
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+-- Portal passwords are never stored: signing in opens a real browser window and
+-- the user authenticates there, so only the resulting session cookies are kept
+-- (see browser_sessions). Drops the short-lived credential table if present.
+DROP TABLE IF EXISTS profile_credentials;
 
 CREATE TABLE IF NOT EXISTS jobs (
   id TEXT PRIMARY KEY,

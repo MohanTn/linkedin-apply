@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api';
 import type { ShortlistStatus } from '@/types/api';
+import { ProfileManager } from '@/components/ProfileManager';
 import { ProfileSelector } from '@/components/ProfileSelector';
 import { SearchPrefsEditor } from '@/components/SearchPrefsEditor';
 import { DiscoveryProgressBar } from '@/components/DiscoveryProgressBar';
@@ -88,6 +89,10 @@ export default function Dashboard() {
         Gather open positions from the last 24 hours, run the company check, then
         apply yourself using the links. This app never applies for you.
       </p>
+
+      <div className="card">
+        <ProfileManager profiles={profilesQuery.data?.profiles} />
+      </div>
 
       <div className="card">
         <ProfileSelector profiles={profilesQuery.data?.profiles} onSelect={setProfile} />

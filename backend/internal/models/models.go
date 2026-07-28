@@ -6,15 +6,39 @@ import (
 	"time"
 )
 
+// Profile sources: env-seeded profiles are read-only in the cockpit, db ones are
+// created by the user and fully editable.
+const (
+	ProfileSourceEnv = "env"
+	ProfileSourceDB  = "db"
+)
+
 // Profile is a job-seeker identity with its own credentials and search preferences.
 type Profile struct {
 	ID              string    `json:"id"`
 	Name            string    `json:"name"`
 	LinkedinEmail   string    `json:"linkedinEmail"`
 	GlassdoorEmail  string    `json:"glassdoorEmail"`
+	Source          string    `json:"source"` // env | db
 	ProfileDataPath string    `json:"-"`
 	CreatedAt       time.Time `json:"createdAt"`
 	UpdatedAt       time.Time `json:"updatedAt"`
+	// Sessions reports this profile's browser session per login platform.
+	// Populated on read, ignored on write.
+	Sessions []PlatformSession `json:"sessions,omitempty"`
+}
+
+// PlatformSession is the cockpit's view of one portal's login state. No
+// credentials are involved: the user signs in through a real browser window and
+// only the resulting session is persisted.
+type PlatformSession struct {
+	Platform string `json:"platform"`
+	// Status is the persisted session state: active | expired | needs_2fa | none.
+	Status string `json:"status"`
+	// ExpiresAt is when the stored session stops being reused. A pointer because
+	// omitempty does not skip a zero time.Time, and "no session" must not
+	// serialize as a date in year 1.
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
 }
 
 // SearchPrefs comes from data_profileN.json and drives what the scraper looks for.

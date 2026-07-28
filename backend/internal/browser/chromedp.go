@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -57,12 +58,13 @@ func (b *Chromedp) newContext(parent context.Context) (context.Context, context.
 		chromedp.Flag("disable-blink-features", "AutomationControlled"),
 		chromedp.UserAgent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"),
 	)
-	// Running headless as root inside a container requires --no-sandbox and a
-	// large /dev/shm workaround. CHROME_BIN pins the Chromium binary when the
-	// default lookup would miss it (e.g. the Docker image).
-	if b.headless {
+	// Chrome refuses to run as root without --no-sandbox, headless or not, and the
+	// container's default 64MB /dev/shm is too small either way. Keyed on the uid
+	// rather than on headless, so the headful sign-in window works in Docker too.
+	if os.Geteuid() == 0 {
 		opts = append(opts, chromedp.NoSandbox, chromedp.Flag("disable-dev-shm-usage", true))
 	}
+	// CHROME_BIN pins the Chromium binary when the default lookup would miss it.
 	if bin := os.Getenv("CHROME_BIN"); bin != "" {
 		opts = append(opts, chromedp.ExecPath(bin))
 	}
@@ -159,34 +161,46 @@ func (b *Chromedp) Login(ctx context.Context, platform, email, password string) 
 	tctx, tcancel := context.WithTimeout(tctx, b.timeout)
 	defer tcancel()
 
-	// Navigate to the login page (this must succeed).
-	if err := chromedp.Run(tctx, network.Enable(), chromedp.Navigate(spec.loginURL)); err != nil {
-		return LoginResult{}, fmt.Errorf("navigate: %w", err)
+	// A sign-in is driven by the user in a real window, so a headless browser has
+	// no way to complete it. Fail early with the actual fix rather than timing out.
+	if b.headless && (email == "" || password == "") {
+		return LoginResult{}, fmt.Errorf(
+			"cannot sign in to %s headlessly: signing in opens a browser window for you to "+
+				"log in, which needs HEADLESS=false and a display", platform)
 	}
 
-	// Best-effort auto-fill + submit with a short budget. In headful mode a
-	// failure here is fine — the user can sign in by hand in the open window and
-	// we still detect success via the auth cookie. In headless mode auto-fill is
-	// the only way in, so a failure is fatal.
-	fctx, fcancel := context.WithTimeout(tctx, 20*time.Second)
-	fillErr := chromedp.Run(fctx,
-		chromedp.WaitVisible(spec.userSel, chromedp.ByQuery),
-		chromedp.SendKeys(spec.userSel, email, chromedp.ByQuery),
-		chromedp.SendKeys(spec.passSel, password, chromedp.ByQuery),
-		chromedp.Click(spec.submitSel, chromedp.ByQuery),
-	)
-	fcancel()
-	if fillErr != nil {
-		if b.headless {
-			return LoginResult{}, fmt.Errorf("login submit: %w", fillErr)
+	// Navigate to the login page (this must succeed).
+	if err := chromedp.Run(tctx, network.Enable(), chromedp.Navigate(spec.loginURL)); err != nil {
+		return LoginResult{}, explainDisplayError(err)
+	}
+
+	// Prefill from PROFILE_<N>_* env vars when they happen to be set, purely as a
+	// convenience — the user still completes the sign-in in the window. With no
+	// credentials we leave the form untouched and simply wait for them.
+	if email != "" && password != "" {
+		fctx, fcancel := context.WithTimeout(tctx, 20*time.Second)
+		fillErr := chromedp.Run(fctx,
+			chromedp.WaitVisible(spec.userSel, chromedp.ByQuery),
+			chromedp.SendKeys(spec.userSel, email, chromedp.ByQuery),
+			chromedp.SendKeys(spec.passSel, password, chromedp.ByQuery),
+			chromedp.Click(spec.submitSel, chromedp.ByQuery),
+		)
+		fcancel()
+		if fillErr != nil {
+			if b.headless {
+				return LoginResult{}, fmt.Errorf("login submit: %w", fillErr)
+			}
+			log.Printf("[login] %s: auto-fill skipped (%v) — sign in manually in the open window", platform, fillErr)
 		}
-		log.Printf("[login] %s: auto-fill skipped (%v) — sign in manually in the open window", platform, fillErr)
+	} else {
+		log.Printf("[login] %s: no stored credentials (by design) — sign in in the open window", platform)
 	}
 
 	// Poll for a terminal state: authentication (the auth cookie appears), an
 	// explicit credential error, or (headless only) a challenge URL.
 	if !b.headless {
-		log.Printf("[login] %s: window is open — sign in and complete any checkpoint/2FA/CAPTCHA; waiting up to %s (do NOT close the window)", platform, b.loginWait)
+		log.Printf("[login] %s: window is open at %s — sign in there and complete any checkpoint/2FA/CAPTCHA; waiting up to %s",
+			platform, ViewerURL(), b.loginWait)
 	}
 
 	var finalURL, title string
@@ -641,6 +655,128 @@ func indeedDeSearchURL(q ScrapeQuery) string {
 	v.Set("sort", "date")
 	return "https://de.indeed.com/jobs?" + v.Encode()
 }
+
+// explainDisplayError rewrites Chrome's X11 startup noise into the fix. Chrome
+// prints several lines here; the actionable one is almost always that the X
+// server refused the container's connection.
+func explainDisplayError(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "Authorization required"),
+		strings.Contains(msg, "authorization protocol"):
+		return fmt.Errorf(
+			"the X server refused the connection, so the sign-in window could not open. "+
+				"The container needs your X cookie: run  ./scripts/allow-x11.sh  on the host, "+
+				"then  docker compose up -d --force-recreate backend. "+
+				"(xhost alone is often not enough — the container's hostname differs from the "+
+				"host's, so the cookie has to be rewritten to the wildcard family, which that "+
+				"script does.) Original error: %w", err)
+	case strings.Contains(msg, "Missing X server"),
+		strings.Contains(msg, "$DISPLAY"),
+		strings.Contains(msg, "failed to initialize"):
+		return fmt.Errorf(
+			"no usable X display, so the sign-in window could not open. Check that DISPLAY is "+
+				"set on the host, /tmp/.X11-unix is mounted into the container, and you ran "+
+				"`xhost +local:root`. Original error: %w", err)
+	}
+	return fmt.Errorf("navigate: %w", err)
+}
+
+// x11SocketDir is where local X displays expose their unix sockets. A variable
+// so tests can point it at a temp dir instead of depending on the real host.
+var x11SocketDir = "/tmp/.X11-unix"
+
+// DisplayInfo summarises which X display will be used and which ones are
+// actually reachable. Logged at startup because "Chromium runs but I see no
+// window" is almost always the container drawing on a different display than
+// the monitor — invisible unless the two are printed side by side.
+func DisplayInfo() string {
+	display := os.Getenv("DISPLAY")
+	if display == "" {
+		display = "(unset)"
+	}
+	entries, err := os.ReadDir(x11SocketDir)
+	if err != nil {
+		return fmt.Sprintf("DISPLAY=%s, but %s is not readable (is it mounted?)", display, x11SocketDir)
+	}
+	var found []string
+	for _, e := range entries {
+		if name := e.Name(); strings.HasPrefix(name, "X") {
+			found = append(found, ":"+strings.TrimPrefix(name, "X"))
+		}
+	}
+	sort.Strings(found)
+	if len(found) == 0 {
+		return fmt.Sprintf("DISPLAY=%s, but no X displays are visible in %s", display, x11SocketDir)
+	}
+	msg := fmt.Sprintf("DISPLAY=%s; displays reachable from this container: %s",
+		display, strings.Join(found, " "))
+	if len(found) > 1 {
+		msg += " — if the sign-in window does not appear on your screen, the wrong one is selected;" +
+			" set DISPLAY to the one your monitor uses and recreate the container"
+	}
+	return msg
+}
+
+// CheckDisplay reports a human-readable problem with the X setup, or "" when it
+// looks usable. Called at startup in headful mode so a misconfigured display is
+// visible in the logs immediately rather than on the first Sign in click.
+func CheckDisplay() string {
+	display := os.Getenv("DISPLAY")
+	if display == "" {
+		return "DISPLAY is not set, so the sign-in window cannot open. In Docker, pass " +
+			"DISPLAY through and mount /tmp/.X11-unix (see docker-compose.yml)."
+	}
+	// A local display (":0", "host:0") is served by a unix socket under
+	// /tmp/.X11-unix; a remote one (TCP) is not, so only check the local case.
+	host, num, found := strings.Cut(display, ":")
+	if !found || (host != "" && host != "localhost" && host != "unix") {
+		return ""
+	}
+	screen, _, _ := strings.Cut(num, ".")
+	sock := filepath.Join(x11SocketDir, "X"+screen)
+	if _, err := os.Stat(sock); err != nil {
+		return fmt.Sprintf("DISPLAY=%s but %s is missing, so the sign-in window cannot open. "+
+			"In Docker, mount /tmp/.X11-unix into the container (see docker-compose.yml).", display, sock)
+	}
+	// The X server will reject us without a cookie. A missing/empty XAUTHORITY —
+	// or the directory docker silently creates for an absent bind-mount source —
+	// is the usual cause, and it fails only when the user first clicks Sign in.
+	if xa := os.Getenv("XAUTHORITY"); xa != "" {
+		switch st, err := os.Stat(xa); {
+		case err != nil:
+			return fmt.Sprintf("XAUTHORITY=%s does not exist, so the X server will refuse the "+
+				"connection. Run ./scripts/allow-x11.sh on the host, then recreate this container.", xa)
+		case st.IsDir():
+			return fmt.Sprintf("XAUTHORITY=%s is a directory (docker created it because the file "+
+				"was missing), so the X server will refuse the connection. Run "+
+				"./scripts/allow-x11.sh on the host, then recreate this container.", xa)
+		case st.Size() == 0:
+			return fmt.Sprintf("XAUTHORITY=%s is empty, so the X server will refuse the "+
+				"connection. Run ./scripts/allow-x11.sh on the host, then recreate this container.", xa)
+		}
+	}
+	return ""
+}
+
+// ViewerURL is where the user watches and drives the sign-in window. The
+// container runs its own X server and exports it over noVNC, so this is a page
+// in their normal browser rather than a window on their desktop.
+func ViewerURL() string {
+	if u := os.Getenv("SIGNIN_VIEWER_URL"); u != "" {
+		return u
+	}
+	port := os.Getenv("NOVNC_PORT")
+	if port == "" {
+		port = "7900"
+	}
+	return "http://localhost:" + port + "/vnc.html"
+}
+
+// scaffold:inject
 
 // linkedinExtractJS walks visible job cards and returns a JSON array. Returns a
 // JSON string (chromedp Evaluate marshals the JS return value).

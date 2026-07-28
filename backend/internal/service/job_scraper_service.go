@@ -50,9 +50,12 @@ func (s *JobScraperService) ScrapeRecent(ctx context.Context, profileID, platfor
 	case browser.Public(platform):
 		scraped, err = s.browser.ScrapeRecent(ctx, platform, nil, q)
 	default:
-		sess, aerr := s.auth.EnsureSession(ctx, profileID, platform)
+		// Use the stored session only. A missing one means "not signed in yet",
+		// which the caller reports and skips — it must never trigger an
+		// interactive login in the middle of a background run.
+		sess, aerr := s.auth.ActiveSession(ctx, profileID, platform)
 		if aerr != nil {
-			return nil, aerr // ErrInvalidCreds / ErrNeeds2FA bubble up
+			return nil, aerr
 		}
 		scraped, err = s.browser.ScrapeRecent(ctx, platform, sess.Cookies, q)
 	}

@@ -3,20 +3,25 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/mohan/linkedin-apply-backend/internal/models"
 )
 
-// ProfileService loads profiles from env credentials + JSON search preferences.
+// ProfileService owns profiles: the env-seeded ones plus everything created in
+// the cockpit. It never handles portal passwords — signing in is done by the
+// user in a real browser window, and only the session is persisted.
 type ProfileService struct {
 	store   ProfileStore
 	dataDir string                        // where data_profileN.json live
 	getenv  func(string) string           // injectable for tests
 	prefs   map[string]models.SearchPrefs // cache: profileID -> prefs
+	newID   func() string                 // injectable for tests
 }
 
 func NewProfileService(store ProfileStore, dataDir string) *ProfileService {
@@ -25,19 +30,35 @@ func NewProfileService(store ProfileStore, dataDir string) *ProfileService {
 		dataDir: dataDir,
 		getenv:  os.Getenv,
 		prefs:   map[string]models.SearchPrefs{},
+		newID:   func() string { return "profile-" + uuid.NewString()[:8] },
 	}
 }
 
-// LoadProfiles discovers profiles from PROFILE_<N>_* env vars (N = 1,2,3,...),
-// loads each data_profileN.json for search preferences, syncs to the store, and
-// returns the list. Stops at the first N with no LinkedIn email.
+// ProfileInput is the cockpit's create/update payload. A profile is just a name:
+// which portals it is signed in to follows from the sessions it holds.
+type ProfileInput struct {
+	Name string `json:"name"`
+}
+
+// LoadProfiles syncs the PROFILE_<N>_* env-seeded profiles into the store, then
+// returns every profile (env-seeded and cockpit-created).
 func (s *ProfileService) LoadProfiles(ctx context.Context) ([]models.Profile, error) {
-	var out []models.Profile
+	if err := s.syncEnvProfiles(ctx); err != nil {
+		return nil, err
+	}
+	return s.store.GetAll(ctx)
+}
+
+// syncEnvProfiles seeds profile-N for each PROFILE_<N>_* block, stopping at the
+// first N with no LinkedIn and no Glassdoor email. Seeding happens once per id:
+// afterwards the profile is owned by the database, so renames and deletes made
+// in the cockpit are not undone the next time the list is loaded.
+func (s *ProfileService) syncEnvProfiles(ctx context.Context) error {
 	for n := 1; ; n++ {
 		liEmail := s.getenv(fmt.Sprintf("PROFILE_%d_LINKEDIN_EMAIL", n))
 		gdEmail := s.getenv(fmt.Sprintf("PROFILE_%d_GLASSDOOR_EMAIL", n))
 		if liEmail == "" && gdEmail == "" {
-			break
+			return nil
 		}
 		id := fmt.Sprintf("profile-%d", n)
 		path := filepath.Join(s.dataDir, fmt.Sprintf("data_profile%d.json", n))
@@ -48,17 +69,14 @@ func (s *ProfileService) LoadProfiles(ctx context.Context) ([]models.Profile, er
 			name = id
 		}
 
-		p := &models.Profile{ID: id, Name: name, LinkedinEmail: liEmail, GlassdoorEmail: gdEmail, ProfileDataPath: path}
-		if err := s.store.Upsert(ctx, p); err != nil {
-			return nil, fmt.Errorf("sync profile %s: %w", id, err)
+		p := &models.Profile{
+			ID: id, Name: name, LinkedinEmail: liEmail, GlassdoorEmail: gdEmail,
+			ProfileDataPath: path, Source: models.ProfileSourceEnv,
 		}
-		got, err := s.store.GetByID(ctx, id)
-		if err != nil {
-			return nil, err
+		if err := s.store.SeedIfAbsent(ctx, p); err != nil {
+			return fmt.Errorf("seed profile %s: %w", id, err)
 		}
-		out = append(out, *got)
 	}
-	return out, nil
 }
 
 // loadPrefs reads data_profileN.json. A missing/malformed file yields default
@@ -76,16 +94,15 @@ func (s *ProfileService) loadPrefs(path string) (string, models.SearchPrefs) {
 	return pf.Name, pf.Search
 }
 
-// GetCredentials returns the email/password for a profile+platform from env.
-func (s *ProfileService) GetCredentials(profileID, platform string) (email, password string, err error) {
+// GetCredentials returns optional PROFILE_<N>_* env credentials for a profile,
+// used only to prefill the login form in the browser window. Empty values are
+// normal and not an error: the user types their own credentials in that window,
+// and nothing is ever persisted.
+func (s *ProfileService) GetCredentials(profileID, platform string) (email, password string) {
 	n := strings.TrimPrefix(profileID, "profile-")
 	plat := strings.ToUpper(platform)
-	email = s.getenv(fmt.Sprintf("PROFILE_%s_%s_EMAIL", n, plat))
-	password = s.getenv(fmt.Sprintf("PROFILE_%s_%s_PASSWORD", n, plat))
-	if email == "" || password == "" {
-		return "", "", fmt.Errorf("missing %s credentials for %s", platform, profileID)
-	}
-	return email, password, nil
+	return s.getenv(fmt.Sprintf("PROFILE_%s_%s_EMAIL", n, plat)),
+		s.getenv(fmt.Sprintf("PROFILE_%s_%s_PASSWORD", n, plat))
 }
 
 // GetSearchPrefs returns preferences, preferring (in order) the in-memory cache,
@@ -123,3 +140,48 @@ func (s *ProfileService) SavePrefs(ctx context.Context, profileID string, prefs 
 	s.prefs[profileID] = prefs
 	return nil
 }
+
+// CreateProfile stores a new cockpit-managed profile. Portals are connected
+// afterwards by signing in, which is what creates the session.
+func (s *ProfileService) CreateProfile(ctx context.Context, in ProfileInput) (*models.Profile, error) {
+	name := strings.TrimSpace(in.Name)
+	if name == "" {
+		return nil, errors.New("profile name is required")
+	}
+	p := &models.Profile{ID: s.newID(), Name: name, Source: models.ProfileSourceDB}
+	if err := s.store.Upsert(ctx, p); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+// UpdateProfile renames a profile. Every profile is editable, including ones
+// originally seeded from the environment.
+func (s *ProfileService) UpdateProfile(ctx context.Context, id string, in ProfileInput) (*models.Profile, error) {
+	existing, err := s.store.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if name := strings.TrimSpace(in.Name); name != "" {
+		existing.Name = name
+	}
+	if err := s.store.Upsert(ctx, existing); err != nil {
+		return nil, err
+	}
+	return existing, nil
+}
+
+// DeleteProfile removes any profile and its dependent rows. Env-seeded profiles
+// can be deleted too: the store keeps a tombstone so they are not re-seeded.
+func (s *ProfileService) DeleteProfile(ctx context.Context, id string) error {
+	if _, err := s.store.GetByID(ctx, id); err != nil {
+		return err
+	}
+	if err := s.store.Delete(ctx, id); err != nil {
+		return err
+	}
+	delete(s.prefs, id)
+	return nil
+}
+
+// scaffold:inject

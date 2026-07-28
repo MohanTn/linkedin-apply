@@ -46,6 +46,15 @@ func main() {
 	// Browser + services
 	headless := env("HEADLESS", "true") != "false"
 	br := browser.New(headless)
+	if headless {
+		log.Println("WARNING: HEADLESS=true — the cockpit's Sign in button opens a browser " +
+			"window for you to log in, which needs HEADLESS=false and a display.")
+	} else {
+		log.Printf("sign-in window will be viewable at %s (%s)", browser.ViewerURL(), browser.DisplayInfo())
+		if msg := browser.CheckDisplay(); msg != "" {
+			log.Printf("WARNING: %s", msg)
+		}
+	}
 	profileSvc := service.NewProfileService(profileRepo, env("DATA_DIR", "."))
 	authSvc := service.NewAuthSessionService(profileSvc, sessionRepo, br)
 	apis := map[string]service.PortalAPI{"arbeitsagentur": portal.NewArbeitsagenturClient()}
@@ -87,7 +96,11 @@ func setupRouter(p *handler.ProfileHandler, d *handler.DiscoveryHandler, s *hand
 	r := gin.Default()
 	r.GET("/api/health", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
 
+	r.GET("/api/signin-viewer", p.SignInViewer)
 	r.GET("/api/profiles", p.GetProfiles)
+	r.POST("/api/profiles", p.Create)
+	r.PUT("/api/profiles/:id", p.Update)
+	r.DELETE("/api/profiles/:id", p.Delete)
 	r.POST("/api/profiles/:id/login", p.Login)
 	r.POST("/api/profiles/:id/signin", p.SignIn)
 	r.GET("/api/profiles/:id/prefs", p.GetPrefs)

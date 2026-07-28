@@ -38,7 +38,8 @@ func (f *BrowserJDFetcher) FetchJD(ctx context.Context, profileID string, job mo
 	}
 	var cookies json.RawMessage
 	if browser.NeedsLogin(job.Platform) {
-		sess, err := f.auth.EnsureSession(ctx, profileID, job.Platform)
+		// Stored session only — an ATS run must never open a sign-in window.
+		sess, err := f.auth.ActiveSession(ctx, profileID, job.Platform)
 		if err != nil {
 			return "", nil // no session -> best-effort skip, not a run failure
 		}

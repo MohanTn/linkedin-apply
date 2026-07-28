@@ -67,6 +67,13 @@ export function DiscoveryProgressBar({
         </ul>
       )}
 
+      {/* Skipped platforms are not a failed run: the rest of the results stand. */}
+      {status?.warnings?.map((w, i) => (
+        <div key={i} className="warn">
+          ⚠️ {w}
+        </div>
+      ))}
+
       {phase === 'error' && <div className="err">{status?.error}</div>}
     </div>
   );
