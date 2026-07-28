@@ -120,7 +120,6 @@ func (r *ProfileRepo) Delete(ctx context.Context, id string) error {
 		`DELETE FROM discovery_runs WHERE profile_id = $1`,
 		`DELETE FROM resumes WHERE profile_id = $1`,
 		`DELETE FROM browser_sessions WHERE profile_id = $1`,
-		`DELETE FROM profile_credentials WHERE profile_id = $1`,
 	} {
 		if _, err := tx.ExecContext(ctx, q, id); err != nil {
 			return err
