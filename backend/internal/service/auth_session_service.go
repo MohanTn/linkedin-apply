@@ -121,8 +121,9 @@ func (s *AuthSessionService) Sessions(ctx context.Context, profileID string) []m
 		if sess, err := s.sessions.Get(ctx, profileID, platform); err == nil {
 			ps.Status = sess.Status
 			if !sess.ExpiresAt.IsZero() {
-				expires := sess.ExpiresAt
-				ps.ExpiresAt = &expires
+				expires := new(time.Time)
+				*expires = sess.ExpiresAt
+				ps.ExpiresAt = expires
 			}
 			// A stored "active" session that has lapsed is reported as expired, so
 			// the UI prompts for a fresh sign-in instead of promising a usable one.
