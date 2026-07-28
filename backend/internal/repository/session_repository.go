@@ -41,6 +41,13 @@ func (r *SessionRepo) Get(ctx context.Context, profileID, platform string) (*mod
 
 // Upsert stores or replaces the session for a profile/platform.
 func (r *SessionRepo) Upsert(ctx context.Context, s *models.BrowserSession) error {
+	var lastLogin, expiresAt any
+	if !s.LastLogin.IsZero() {
+		lastLogin = s.LastLogin
+	}
+	if !s.ExpiresAt.IsZero() {
+		expiresAt = s.ExpiresAt
+	}
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO browser_sessions (id, profile_id, platform, cookies, status, last_login, expires_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -49,15 +56,8 @@ func (r *SessionRepo) Upsert(ctx context.Context, s *models.BrowserSession) erro
 		   status = EXCLUDED.status,
 		   last_login = EXCLUDED.last_login,
 		   expires_at = EXCLUDED.expires_at`,
-		s.ID, s.ProfileID, s.Platform, nullJSON(s.Cookies), s.Status, nullTime(s.LastLogin), nullTime(s.ExpiresAt))
+		s.ID, s.ProfileID, s.Platform, nullJSON(s.Cookies), s.Status, lastLogin, expiresAt)
 	return err
-}
-
-func nullTime(t time.Time) any {
-	if t.IsZero() {
-		return nil
-	}
-	return t
 }
 
 // scaffold:inject

@@ -19,6 +19,10 @@ func NewJobRepo(db *sql.DB) *JobRepo {
 // Upsert inserts a job or, on external_job_id conflict, refreshes the mutable
 // fields while preserving first_seen_at. Returns the stored row.
 func (r *JobRepo) Upsert(ctx context.Context, j *models.Job) (*models.Job, error) {
+	var postedAt any
+	if !j.PostedAt.IsZero() {
+		postedAt = j.PostedAt
+	}
 	row := r.db.QueryRowContext(ctx,
 		`INSERT INTO jobs (id, external_job_id, title, company, apply_url, platform, posted_at, location, salary, raw_data)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -31,7 +35,7 @@ func (r *JobRepo) Upsert(ctx context.Context, j *models.Job) (*models.Job, error
 		   salary = EXCLUDED.salary,
 		   raw_data = EXCLUDED.raw_data
 		 RETURNING id, external_job_id, title, company, apply_url, platform, posted_at, first_seen_at, location, salary, created_at`,
-		j.ID, j.ExternalJobID, j.Title, j.Company, j.ApplyURL, j.Platform, nullTime(j.PostedAt),
+		j.ID, j.ExternalJobID, j.Title, j.Company, j.ApplyURL, j.Platform, postedAt,
 		nullStr(j.Location), nullStr(j.Salary), nullJSON(j.RawData))
 	return scanJob(row)
 }
