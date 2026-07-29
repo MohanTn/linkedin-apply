@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -28,6 +29,9 @@ type DiscoveryProgress struct {
 	Shortlisted int    `json:"shortlisted"`
 	Ghost       int    `json:"ghost"`
 	Error       string `json:"error,omitempty"`
+	// Warnings are non-fatal problems, e.g. a platform skipped because it has no
+	// session. The run continues and keeps what the other platforms found.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // platformHost maps a platform id to the site name shown in progress messages.
@@ -89,6 +93,7 @@ func (s *DiscoveryService) DiscoverWithRunID(ctx context.Context, profileID stri
 	prog.Phase = PhaseScraping
 	emit(prog)
 	var jobs []models.Job
+	var skipped []string
 	for _, platform := range platforms {
 		prog.Platform = platform
 		prog.Message = "Searching " + platformHost(platform) + "…"
@@ -96,16 +101,30 @@ func (s *DiscoveryService) DiscoverWithRunID(ctx context.Context, profileID stri
 		got, serr := s.scraper.ScrapeRecent(ctx, profileID, platform, prefs, sinceHours)
 		jobs = append(jobs, got...)
 		prog.Found = len(jobs)
-		prog.Message = fmt.Sprintf("%s: found %d jobs matching", platformHost(platform), len(got))
-		emit(prog)
-		if serr != nil {
-			// Login failures are fatal for that platform; keep going to others
-			// but remember partial results. A hard auth error aborts the run.
-			if serr == ErrInvalidCreds || serr == ErrNeeds2FA {
-				emit(DiscoveryProgress{Phase: PhaseError, Found: len(jobs), Error: serr.Error()})
-				return 0, serr
-			}
+
+		// One platform failing must never discard what the others already found.
+		// Record it, tell the user, and carry on.
+		switch {
+		case serr == nil:
+			prog.Message = fmt.Sprintf("%s: found %d jobs matching", platformHost(platform), len(got))
+		case errors.Is(serr, ErrNoSession), errors.Is(serr, ErrNeeds2FA), errors.Is(serr, ErrInvalidCreds):
+			skipped = append(skipped, platformHost(platform))
+			prog.Message = fmt.Sprintf("%s: skipped — not signed in (use Sign in on the profile)",
+				platformHost(platform))
+			prog.Warnings = append(prog.Warnings, prog.Message)
+		default:
+			skipped = append(skipped, platformHost(platform))
+			prog.Message = fmt.Sprintf("%s: skipped — %v", platformHost(platform), serr)
+			prog.Warnings = append(prog.Warnings, prog.Message)
 		}
+		emit(prog)
+	}
+
+	// Only a run that gathered nothing at all is a failure.
+	if len(jobs) == 0 && len(skipped) > 0 {
+		msg := "no jobs found; every platform was skipped: " + strings.Join(skipped, ", ")
+		emit(DiscoveryProgress{Phase: PhaseError, Error: msg, Warnings: prog.Warnings})
+		return 0, errors.New(msg)
 	}
 	jobs = dedupeJobs(jobs)
 	prog.Found = len(jobs)

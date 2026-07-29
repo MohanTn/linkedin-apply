@@ -143,8 +143,9 @@ func (r *ShortlistRepo) List(ctx context.Context, f ShortlistFilter) ([]models.S
 		row.Location = location.String
 		row.Signals = details
 		if atsScore.Valid {
-			n := int(atsScore.Int64)
-			row.AtsScore = &n
+			s := new(int)
+			*s = int(atsScore.Int64)
+			row.AtsScore = s
 			row.AtsDetails = atsDetails
 		}
 		out = append(out, row)

@@ -31,7 +31,16 @@ services:
       DATA_DIR: /data
       DEBUG_DIR: /debug
       PORT: "8080"
-      HEADLESS: "true"
+      # Signing in from the cockpit opens a real Chromium window. The container
+      # runs its own X server and streams it to your browser at
+      # http://localhost:7900/vnc.html — no host display, no X11 forwarding.
+      # Set HEADLESS=true to disable sign-in; discovery still works with
+      # sessions that are already stored.
+      HEADLESS: "${HEADLESS:-false}"
+      DISPLAY: ":99"
+      NOVNC_PORT: "7900"
+      # The URL the cockpit tells you to open (change if you remap the port).
+      SIGNIN_VIEWER_URL: "${SIGNIN_VIEWER_URL:-http://localhost:7900/vnc.html}"
     env_file:
       # Login credentials (PROFILE_*_LINKEDIN_EMAIL/PASSWORD, ...). Optional so
       # the stack still boots before you create the file.
@@ -44,6 +53,10 @@ services:
       - ./debug:/debug
     ports:
       - "8080:8080"
+      # The sign-in window. Bound to 127.0.0.1 on purpose: it is an
+      # unauthenticated view of a browser you are logging in to, so it must not
+      # be reachable from the network.
+      - "127.0.0.1:7900:7900"
     depends_on:
       db:
         condition: service_healthy

@@ -1,8 +1,23 @@
+// One portal's login state. No credentials exist: the user signs in through a
+// real browser window and only the resulting session is stored.
+export interface PlatformSession {
+  platform: string;
+  status: LoginStatus;
+  expiresAt?: string; // when the stored session stops being reused
+}
+
 export interface Profile {
   id: string;
   name: string;
   linkedinEmail: string;
   glassdoorEmail: string;
+  source: 'env' | 'db'; // where the profile came from; both are editable
+  sessions?: PlatformSession[];
+}
+
+// Create/update payload — a profile is just a name.
+export interface ProfileInput {
+  name: string;
 }
 
 export type ShortlistStatus = 'new' | 'saved' | 'dismissed' | 'applied';
@@ -76,6 +91,9 @@ export interface DiscoveryStatus {
   shortlisted: number;
   ghost: number;
   error?: string;
+  // Non-fatal problems, e.g. a platform skipped for lack of a session. The run
+  // keeps whatever the other platforms found.
+  warnings?: string[];
 }
 
-export type LoginStatus = 'active' | 'invalid_creds' | 'needs_2fa' | 'none';
+export type LoginStatus = 'active' | 'expired' | 'invalid_creds' | 'needs_2fa' | 'none';

@@ -17,6 +17,10 @@ type ProfileStore interface {
 	GetByID(ctx context.Context, id string) (*models.Profile, error)
 	GetAll(ctx context.Context) ([]models.Profile, error)
 	Upsert(ctx context.Context, p *models.Profile) error
+	// SeedIfAbsent inserts only when the id is unknown, so env-seeded profiles are
+	// created once and never overwrite later edits.
+	SeedIfAbsent(ctx context.Context, p *models.Profile) error
+	Delete(ctx context.Context, id string) error
 	// GetPrefs returns stored search prefs JSON (nil when unset); SetPrefs saves.
 	GetPrefs(ctx context.Context, id string) ([]byte, error)
 	SetPrefs(ctx context.Context, id string, prefs []byte) error

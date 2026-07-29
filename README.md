@@ -1,17 +1,17 @@
 # Job Discovery with Company Verification
 
-A **discovery-only** job aggregator. It logs in with your own LinkedIn/Glassdoor
-credentials (Selenium-style, via headless Chrome), gathers every open position
+A **discovery-only** job aggregator. You sign in to LinkedIn/Glassdoor/Xing once
+in a real browser window (no passwords are stored), it gathers every open position
 posted in the **last 24 hours**, runs a **ghost-job company check** on each, and
 gives you a curated, ranked **shortlist with direct apply links**.
 
 **It never applies for you.** Every shortlist row is a link you open and submit
 yourself. Status (`new` / `saved` / `dismissed` / `applied`) is manual bookkeeping.
 
-> ⚠️ Automating logins to LinkedIn/Glassdoor with stored credentials violates
-> their Terms of Service and can get accounts restricted. Use only on accounts
-> you control, at your own risk. The scraper selectors are best-effort and will
-> need tuning as the sites change.
+> ⚠️ Automated scraping of LinkedIn/Glassdoor violates their Terms of Service and
+> can get accounts restricted. Use only on accounts you control, at your own
+> risk. The scraper selectors are best-effort and will need tuning as the sites
+> change.
 
 ## Architecture
 
@@ -36,11 +36,13 @@ jobs are *flagged, not dropped* (hidden behind an "include ghost" toggle).
 Starts Postgres, the Go backend (headless Chromium baked in), and the Next.js
 cockpit.
 
-**1. Configure credentials**
+**1. Configure (optional)**
 
 ```bash
-cp backend/.env.example backend/.env    # set PROFILE_1_LINKEDIN_EMAIL / _PASSWORD
+cp backend/.env.example backend/.env    # optional: seeds a starter profile
 ```
+
+Nothing else to set up — the sign-in window runs inside the container.
 
 **2. Start the stack**
 
@@ -48,22 +50,36 @@ cp backend/.env.example backend/.env    # set PROFILE_1_LINKEDIN_EMAIL / _PASSWO
 docker compose up --build -d
 ```
 
-Services: `db` (5433 on host, 5432 in-network), `backend` (8080), `frontend` (3000). `data_profileN.json`
-at the repo root is mounted read-only at `/data`.
+Services: `db` (5433 on host, 5432 in-network), `backend` (8080 API + 7900
+sign-in window), `frontend` (3000). `data_profileN.json` at the repo root is
+mounted read-only at `/data`.
 
-**3. Log in once (real browser, on your host)**
+**3. Connect a portal (sign in once)**
 
-The containers are **headless**, and LinkedIn blocks headless logins even with
-valid credentials. So do the first sign-in in a real browser window — it saves
-the session to the same Postgres, and the containers reuse it:
+Open http://localhost:3000 → **Profiles & portal sessions** → **Add profile** →
+**Sign in** next to LinkedIn (or Glassdoor/Xing).
+
+A browser tab opens on **http://localhost:7900/vnc.html** showing a real Chromium
+window running inside the container. Log in there — including any
+checkpoint/2FA/CAPTCHA. The session is saved to Postgres and the headless
+scraping reuses it until it expires (7 days); the cockpit shows the time left.
+
+**No passwords are ever stored.** Only the session cookies are kept.
+
+Why a window inside the container? A visible browser needs a display, and
+borrowing the host's X server means cookie/`xhost` wrangling that breaks on
+Wayland, macOS, and remote hosts. The container brings its own display and
+streams it to your browser, so this works the same everywhere. Port 7900 is
+bound to `127.0.0.1` on purpose: it is an unauthenticated view of a browser you
+are logging in to, so it must not be reachable from the network.
+
+If you would rather use the host's X server, set `USE_HOST_DISPLAY=true` and
+pass `DISPLAY`/`XAUTHORITY` in (run `./scripts/allow-x11.sh` first). The
+host-side script still works too:
 
 ```bash
 ./scripts/login.sh profile-1 linkedin
 ```
-
-A Chrome/Chromium window opens; sign in fully (solve any checkpoint/2FA) and
-**don't close it** — it closes itself once the session is saved. (Requires Go +
-a desktop session on the host. Login failures drop a screenshot in `debug/`.)
 
 **4. Use the cockpit**
 
@@ -72,9 +88,9 @@ Open http://localhost:3000 → pick the profile → **Gather open positions (las
 
 Stop with `docker compose down` (add `-v` to also drop the Postgres volume).
 
-> Why the split? A visible browser can't run inside the container (no display),
-> and headless LinkedIn logins get bot-blocked. The one-time host login is the
-> reliable way to seed a session the headless stack can reuse.
+> Why sign in by hand? LinkedIn bot-blocks headless logins even with valid
+> credentials, and 2FA/CAPTCHA needs a human anyway. Signing in yourself once
+> sidesteps both — and means the app never has to hold your password.
 
 ## Run the backend (without Docker)
 
@@ -106,7 +122,12 @@ positions (last 24h)**, then open the apply links in the shortlist.
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET    | `/api/profiles` | list profiles (env + JSON) |
-| POST   | `/api/profiles/:id/login` | log in; `{status: active\|invalid_creds\|needs_2fa}` |
+| POST   | `/api/profiles` | create a profile `{name}` |
+| PUT    | `/api/profiles/:id` | rename a profile `{name}` |
+| DELETE | `/api/profiles/:id` | delete a profile and its sessions/shortlist |
+| POST   | `/api/profiles/:id/signin` | open the sign-in window; stores the session |
+| GET    | `/api/signin-viewer` | where to watch/complete the sign-in |
+| POST   | `/api/profiles/:id/login` | session status; `{status: active\|expired\|needs_2fa\|none}` |
 | POST   | `/api/discovery/run` | start a background run `{profileId, platforms, sinceHours}` |
 | GET    | `/api/discovery/:runId/status` | run progress `{phase, found, verified, shortlisted, ghost}` |
 | GET    | `/api/shortlist` | curated jobs `?profileId&status&includeGhost&minScore` |

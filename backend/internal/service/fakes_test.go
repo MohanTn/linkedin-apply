@@ -13,12 +13,17 @@ import (
 // ---- in-memory stores ----
 
 type fakeProfileStore struct {
-	m     map[string]*models.Profile
-	prefs map[string][]byte
+	m       map[string]*models.Profile
+	prefs   map[string][]byte
+	deleted map[string]bool // tombstones, mirroring the soft-deleted rows
 }
 
 func newFakeProfileStore() *fakeProfileStore {
-	return &fakeProfileStore{m: map[string]*models.Profile{}, prefs: map[string][]byte{}}
+	return &fakeProfileStore{
+		m:       map[string]*models.Profile{},
+		prefs:   map[string][]byte{},
+		deleted: map[string]bool{},
+	}
 }
 func (f *fakeProfileStore) GetPrefs(_ context.Context, id string) ([]byte, error) {
 	return f.prefs[id], nil
@@ -44,6 +49,25 @@ func (f *fakeProfileStore) GetAll(context.Context) ([]models.Profile, error) {
 func (f *fakeProfileStore) Upsert(_ context.Context, p *models.Profile) error {
 	cp := *p
 	f.m[p.ID] = &cp
+	return nil
+}
+
+// SeedIfAbsent mirrors the repo: insert only when the id is unknown. Tombstoned
+// ids stay known, so a deleted env profile is not re-seeded.
+func (f *fakeProfileStore) SeedIfAbsent(_ context.Context, p *models.Profile) error {
+	if _, known := f.m[p.ID]; known || f.deleted[p.ID] {
+		return nil
+	}
+	cp := *p
+	f.m[p.ID] = &cp
+	return nil
+}
+func (f *fakeProfileStore) Delete(_ context.Context, id string) error {
+	if _, ok := f.m[id]; !ok {
+		return repository.ErrNotFound
+	}
+	delete(f.m, id)
+	f.deleted[id] = true
 	return nil
 }
 

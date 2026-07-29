@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,12 +54,14 @@ func TestProfileService_LoadProfiles(t *testing.T) {
 	if len(got) != 1 || got[0].ID != "profile-1" || got[0].LinkedinEmail != "a@x.com" {
 		t.Fatalf("unexpected profiles: %+v", got)
 	}
-	email, pw, err := svc.GetCredentials("profile-1", "linkedin")
-	if err != nil || email != "a@x.com" || pw != "pw" {
-		t.Fatalf("creds=%s/%s err=%v", email, pw, err)
+	// Env credentials are optional prefill only.
+	email, pw := svc.GetCredentials("profile-1", "linkedin")
+	if email != "a@x.com" || pw != "pw" {
+		t.Fatalf("creds=%s/%s", email, pw)
 	}
-	if _, _, err := svc.GetCredentials("profile-1", "glassdoor"); err == nil {
-		t.Fatal("expected missing glassdoor creds error")
+	// Missing credentials are normal, not an error: the user signs in manually.
+	if email, pw := svc.GetCredentials("profile-1", "glassdoor"); email != "" || pw != "" {
+		t.Fatalf("expected empty glassdoor creds, got %s/%s", email, pw)
 	}
 }
 
@@ -81,7 +84,16 @@ func buildDiscovery(t *testing.T, fb *fakeBrowser, probe CompanyProbe, prefs mod
 	}
 	psvc.prefs["profile-1"] = prefs
 
-	auth := NewAuthSessionService(psvc, newFakeSessionStore(), fb)
+	// Discovery uses stored sessions only and never logs in, so seed one.
+	sessions := newFakeSessionStore()
+	if err := sessions.Upsert(context.Background(), &models.BrowserSession{
+		ID: "s1", ProfileID: "profile-1", Platform: "linkedin",
+		Status: models.SessionActive, Cookies: []byte(`[{"name":"li_at"}]`),
+		ExpiresAt: time.Now().Add(24 * time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	auth := NewAuthSessionService(psvc, sessions, fb)
 	scraper := NewJobScraperService(auth, fb, newFakeJobStore(), nil)
 	verify := NewCompanyVerificationService(newFakeVerificationStore(), probe, nil, nil)
 	sl := &fakeShortlistStore{}
@@ -131,12 +143,33 @@ func TestDiscovery_ShortlistsAndFlagsGhost(t *testing.T) {
 	}
 }
 
-func TestDiscovery_AbortsOnInvalidCreds(t *testing.T) {
-	fb := &fakeBrowser{outcome: browser.OutcomeInvalidCreds}
-	disc, _ := buildDiscovery(t, fb, &fakeProbe{}, models.SearchPrefs{})
+// An expired session is "not signed in": the platform is skipped rather than
+// silently scraped with dead cookies, and no login window is opened.
+func TestDiscovery_ExpiredSessionIsSkipped(t *testing.T) {
+	fb := &fakeBrowser{}
+	psvc := NewProfileService(newFakeProfileStore(), t.TempDir())
+	psvc.getenv = func(string) string { return "" }
+	psvc.prefs["profile-1"] = models.SearchPrefs{}
+
+	sessions := newFakeSessionStore()
+	if err := sessions.Upsert(context.Background(), &models.BrowserSession{
+		ID: "s1", ProfileID: "profile-1", Platform: "linkedin",
+		Status: models.SessionActive, Cookies: []byte(`[{"name":"li_at"}]`),
+		ExpiresAt: time.Now().Add(-time.Hour), // lapsed
+	}); err != nil {
+		t.Fatal(err)
+	}
+	auth := NewAuthSessionService(psvc, sessions, fb)
+	scraper := NewJobScraperService(auth, fb, newFakeJobStore(), nil)
+	verify := NewCompanyVerificationService(newFakeVerificationStore(), &fakeProbe{}, nil, nil)
+	disc := NewDiscoveryService(psvc, scraper, verify, &fakeShortlistStore{})
+
 	_, err := disc.Discover(context.Background(), "profile-1", []string{"linkedin"}, 24, nil)
-	if err != ErrInvalidCreds {
-		t.Fatalf("err=%v, want ErrInvalidCreds", err)
+	if err == nil || !strings.Contains(err.Error(), "linkedin.com") {
+		t.Fatalf("err=%v, want a skipped-platform error naming linkedin.com", err)
+	}
+	if fb.loginN != 0 {
+		t.Fatalf("browser.Login called %d times; discovery must not open a sign-in window", fb.loginN)
 	}
 }
 
@@ -163,7 +196,16 @@ func TestScraper_FiltersOldAndExcluded(t *testing.T) {
 		}
 		return ""
 	}
-	auth := NewAuthSessionService(psvc, newFakeSessionStore(), fb)
+	// Discovery uses stored sessions only and never logs in, so seed one.
+	sessions := newFakeSessionStore()
+	if err := sessions.Upsert(context.Background(), &models.BrowserSession{
+		ID: "s1", ProfileID: "profile-1", Platform: "linkedin",
+		Status: models.SessionActive, Cookies: []byte(`[{"name":"li_at"}]`),
+		ExpiresAt: time.Now().Add(24 * time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	auth := NewAuthSessionService(psvc, sessions, fb)
 	scraper := NewJobScraperService(auth, fb, newFakeJobStore(), nil)
 
 	prefs := models.SearchPrefs{ExcludeCompanies: []string{"BadCo"}}
@@ -215,7 +257,16 @@ func TestDiscoverViaPortalAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	auth := NewAuthSessionService(psvc, newFakeSessionStore(), fb)
+	// Discovery uses stored sessions only and never logs in, so seed one.
+	sessions := newFakeSessionStore()
+	if err := sessions.Upsert(context.Background(), &models.BrowserSession{
+		ID: "s1", ProfileID: "profile-1", Platform: "linkedin",
+		Status: models.SessionActive, Cookies: []byte(`[{"name":"li_at"}]`),
+		ExpiresAt: time.Now().Add(24 * time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	auth := NewAuthSessionService(psvc, sessions, fb)
 	scraper := NewJobScraperService(auth, fb, newFakeJobStore(), map[string]PortalAPI{"arbeitsagentur": api})
 	verify := NewCompanyVerificationService(newFakeVerificationStore(), &fakeProbe{}, nil, nil)
 	sl := &fakeShortlistStore{}
